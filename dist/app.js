@@ -9,6 +9,9 @@ import {createStoryIntro} from './story-intro.js';
 import {createInkTransition} from './ink-transition.js';
 import {loadDayCycleSettings,sampleDayCycle} from './day-cycle.js';
 import {loadSeasonSettings,sampleSeasonCycle} from './season-cycle.js';
+import {CAMERA_SHOTS,createCameraDirector} from './camera-director.js';
+import {createInkMarmot} from './ink-marmot.js';
+import {createMarmotVideo} from './marmot-video.js';
 
 const $=id=>document.getElementById(id);
 const stage=$('stage'),canvas=$('scene-canvas'),app=$('app');
@@ -18,11 +21,9 @@ const TAU=Math.PI*2,MAX_DRAWING_PIXELS=2100000;
 const MIN_ZOOM=.65,MAX_ZOOM=2.6;
 let introTiming,introDuration=17000,creditDuration=0,storyDuration=0;
 let credits,story,inkTransition,creditProgress=0,creditTime=-1,storyTime=-1;
-const cues={
-  inside:{label:'穆柯寨內',note:'穆桂英耍劍出台 · 探馬來報',position:[-25,14,-72],target:[0,9,-16],mood:0},
-  outside:{label:'寨外山道',note:'出營應戰 · 白袍小將闖寨',position:[27,15,72],target:[0,9,-16],mood:.28},
-  battle:{label:'陣前交鋒',note:'都馬調對唱 · 旋轉槍法',position:[-25,12,70],target:[0,9,-16],mood:.85}
-};
+const cues=Object.fromEntries(CAMERA_SHOTS.map(shot=>[shot.id,shot]));
+const cameraDirector=createCameraDirector();
+let marmotCue=null;
 let cue='outside',ready=false,playing=false,progress=0,motion=!reduced;
 let timeline=0,drawingProgress=0;
 let pendingAutoplay=true;
@@ -45,6 +46,8 @@ const camera=new THREE.PerspectiveCamera(47,16/9,.5,800),openingCamera=camera.cl
 const target=new THREE.Vector3(),world=new THREE.Group();world.name='Live three-dimensional theatrical scenery';scene.add(world);
 const environment=createEnvironment({depthOnly:true}),fortress=createFortress();world.add(environment.group,fortress.group);
 const inkScene=new THREE.Scene(), paperColor=new THREE.Color('#ffffff');
+const marmot=createInkMarmot(environment.groundHeight);inkScene.add(marmot.group);
+const marmotVideo=createMarmotVideo(app,finishMarmotCue);
 // Invisible depth only: the rear wall/roof strokes must not show through the
 // front brushwork. No scaffold colour, lighting or solid surfaces are displayed.
 const inkDepthScene=new THREE.Scene();
@@ -67,7 +70,12 @@ function storyActive(){return storyDuration>0&&storyTime>0&&storyTime<storyDurat
 function introPhase(){return drawingProgress<1?'drawing':progress<1?'rotation':timeline<1?'presentation':'scene';}
 function setCameraForCue(id,destination=endingCamera){destination.position.fromArray(cues[id].position);destination.lookAt(new THREE.Vector3().fromArray(cues[id].target));destination.updateMatrixWorld(true);}
 function setOpeningCamera(){const pivot=new THREE.Vector3().fromArray(cues[cue].target),offset=endingCamera.position.clone().sub(pivot);offset.applyAxisAngle(new THREE.Vector3(0,1,0),THREE.MathUtils.degToRad(62));openingCamera.position.copy(pivot).add(offset);openingCamera.lookAt(pivot);openingCamera.updateMatrixWorld(true);}
-function setCamera(p){
+function setCamera(p,dt=0){
+  if(p>=1){
+    const pose=cameraDirector.update(dt,motion,orbit,environment.groundHeight);
+    camera.position.fromArray(pose.position);target.fromArray(pose.target);
+    camera.lookAt(target);camera.updateMatrixWorld(true);return;
+  }
   target.fromArray(cues[cue].target);
   const offset=endingCamera.position.clone().sub(target);
   offset.applyAxisAngle(new THREE.Vector3(0,1,0),p<1?THREE.MathUtils.degToRad(62)*(1-smooth(.04,.89,p)):orbit%TAU);
@@ -79,7 +87,7 @@ function setCamera(p){
 async function prepareIntro(reset=true){
   const generation=++introGeneration;ready=false;playing=false;lastFrame=0;$('intro').disabled=true;
   stopKeyboardOrbit();
-  if(reset){orbit=orbitTarget=0;$('orbit').value='0';zoom=zoomTarget=1;camera.zoom=1;camera.updateProjectionMatrix();dayElapsed=0;}
+  if(reset){finishMarmotCue();cue='outside';cameraDirector.select(1,{immediate:true});cameraDirector.select(0);orbit=orbitTarget=0;$('orbit').value='0';zoom=zoomTarget=1;camera.zoom=1;camera.updateProjectionMatrix();dayElapsed=0;}
   setCameraForCue(cue);setOpeningCamera();
   if(reveal){
     // Replaying or changing viewpoint only repositions the paper-space source.
@@ -100,7 +108,7 @@ function updateUI(){
   $('cue-note').textContent=cues[cue].note;$('progress').value=String(Math.round(timeline*1000));$('progress').setAttribute('aria-valuetext',`${Math.round(timeline*100)}%，${label}`);
   $('intro').textContent=playing?'暫停成景':timeline>=1?'重播塗鴉成景':'播放塗鴉成景';
   $('motion').textContent=motion?'暫停風景':'繼續風景';$('motion').setAttribute('aria-pressed',String(!motion));
-  for(const id of Object.keys(cues)){$(`cue-${id}`).setAttribute('aria-pressed',String(id===cue));$(`cue-${id}`).classList.toggle('is-active',id===cue);}
+  for(const id of Object.keys(cues)){$(`cue-${id}`)?.setAttribute('aria-pressed',String(id===cue));$(`cue-${id}`)?.classList.toggle('is-active',id===cue);}
   Object.assign(canvas.dataset,{progress:progress.toFixed(3),creditProgress:creditProgress.toFixed(3),creditsVisible:String(creditsActive()),creditTime:Math.round(creditTime).toString(),storyVisible:String(storyActive()),storyTime:Math.round(storyTime).toString(),drawingProgress:drawingProgress.toFixed(3),introPhase:introPhase(),timeline:timeline.toFixed(3),cue,playing:String(playing),orbitDegrees:THREE.MathUtils.radToDeg(orbit).toFixed(1)});
 }
 function resize(){
@@ -158,7 +166,12 @@ function render(now){
     if(Math.abs(zoomTarget-zoom)<.001)zoom=zoomTarget;
     camera.zoom=zoom;camera.updateProjectionMatrix();
   }
-  setCamera(progress);
+  setCamera(progress,dt);
+  if(marmotCue?.phase==='running'){
+    if(motion)marmotCue.seconds+=dt;
+    const run=marmot.update(marmotCue.seconds,camera,1);
+    if(run.done){marmotCue.phase='video';motion=false;marmotVideo.show();updateUI();}
+  }
   // Begin at the completed scenery. Pausing motion or hiding the page pauses
   // this clock as well; cue changes preserve it and an intro replay resets it.
   if(timeline>=1&&motion&&!switchPending)dayElapsed+=frameMs/1000;
@@ -182,54 +195,70 @@ function render(now){
   if(reveal){reveal.update(progress,elapsed,mood+seasonState.wind*.35,sceneryOpacity,drawingProgress);renderer.render(inkScene,camera);}
   samplePerformance(frameMs);
   renderedFrames++;
-  const keepRendering=ready&&(playing||motion||switchPending||orbitKeys.size>0||Math.abs(orbitTarget-orbit)>.00001||Math.abs(mood-cues[cue].mood)>.002||Math.abs(zoomTarget-zoom)>.0001);
+  const keepRendering=ready&&(playing||motion||switchPending||cameraDirector.moving||orbitKeys.size>0||Math.abs(orbitTarget-orbit)>.00001||Math.abs(mood-cues[cue].mood)>.002||Math.abs(zoomTarget-zoom)>.0001);
   if(now-statsAt>200||!keepRendering)Object.assign(canvas.dataset,{season:seasonState.label,seasonPhase:seasonState.phase.toFixed(4),seasonDuration:String(seasonSettings.durationSeconds),blossom:seasonState.blossom.toFixed(3),rainbow:seasonState.rainbow.toFixed(3),rain:seasonState.rain.toFixed(3),snow:seasonState.snow.toFixed(3),leaves:seasonState.leaves.toFixed(3)});
   if(now-statsAt>200||!keepRendering)Object.assign(canvas.dataset,{dayCyclePhase:dayState.phase.toFixed(4),dayCycleStage:dayState.label,dayCycleSeconds:dayElapsed.toFixed(2),sceneMotionSeconds:elapsed.toFixed(2),dayCycleDuration:String(dayCycleSettings.durationSeconds),dayCycleActive:String(dayCycleSettings.enabled&&timeline>=1&&motion&&!switchPending)});
-  if(now-statsAt>200||!keepRendering){statsAt=now;Object.assign(canvas.dataset,{rendered:'true',focused:String(document.hasFocus()),pageVisible:String(!document.hidden),frameCount:String(renderedFrames),frameMs:smoothedFrameMs.toFixed(2),fps:smoothedFrameMs?(1000/smoothedFrameMs).toFixed(1):'0',drawCalls:String(renderer.info.render.calls),triangles:String(renderer.info.render.triangles),renderScale:renderScale.toFixed(2),orbitDegrees:THREE.MathUtils.radToDeg(orbit).toFixed(1),zoom:zoom.toFixed(3),zoomTarget:zoomTarget.toFixed(3)});}
+  if(now-statsAt>200||!keepRendering){statsAt=now;Object.assign(canvas.dataset,{cameraMode:String(cameraDirector.mode),cameraPosition:camera.position.toArray().map(v=>v.toFixed(2)).join(','),marmotCue:marmotCue?.phase||'idle',marmotSeconds:(marmotCue?.seconds||0).toFixed(2),rendered:'true',focused:String(document.hasFocus()),pageVisible:String(!document.hidden),frameCount:String(renderedFrames),frameMs:smoothedFrameMs.toFixed(2),fps:smoothedFrameMs?(1000/smoothedFrameMs).toFixed(1):'0',drawCalls:String(renderer.info.render.calls),triangles:String(renderer.info.render.triangles),renderScale:renderScale.toFixed(2),orbitDegrees:THREE.MathUtils.radToDeg(orbit).toFixed(1),zoom:zoom.toFixed(3),zoomTarget:zoomTarget.toFixed(3)});}
   if(keepRendering)requestFrame();else lastFrame=0;
 }
 async function toggleIntro(){pendingAutoplay=false;if(!ready||switchPending)return;if(playing){playing=false;updateUI();return;}if(timeline>=1)await prepareIntro();playFrom=timeline;playStart=performance.now();playing=true;updateUI();requestFrame();}
-function chooseCue(id){
-  pendingAutoplay=false;if(!ready||id===switchPending)return;
-  stopKeyboardOrbit();
-  if(id===cue){
-    switchPending=null;switchChanged=false;$('intro').disabled=false;$('progress').disabled=false;
-    if(timeline<1){playing=false;setTimeline(1);}updateUI();requestFrame();return;
-  }
-  playing=false;$('intro').disabled=true;$('progress').disabled=true;switchPending=id;switchChanged=false;switchStart=performance.now();requestFrame();
+function chooseCue(id){const index=CAMERA_SHOTS.findIndex(shot=>shot.id===id);if(index>=0)chooseCamera(index+1);}
+function chooseCamera(number){
+  if(!ready)return;finishMarmotCue();pendingAutoplay=false;playing=false;switchPending=null;stopKeyboardOrbit();
+  cameraDirector.hold(orbit);orbit=orbitTarget=0;zoomTarget=1;
+  if(number>0)cue=CAMERA_SHOTS[number-1].id;
+  cameraDirector.select(number);if(timeline<1)setTimeline(1);
+  $('orbit').value='0';updateUI();requestFrame();
+}
+function holdCamera(){cameraDirector.hold();}
+function startMarmotCue(){
+  if(!ready||marmotCue)return;
+  marmotCue={phase:'running',seconds:0,previousCamera:cameraDirector.snapshot(),previousOrbit:orbit,previousZoom:zoom,previousZoomTarget:zoomTarget,previousMotion:motion,previousCue:cue};
+  pendingAutoplay=false;playing=false;switchPending=null;dragging=false;stopKeyboardOrbit();setTimeline(1);
+  cue='outside';cameraDirector.select(1,{immediate:true});orbit=orbitTarget=0;zoom=zoomTarget=1;camera.zoom=1;camera.updateProjectionMatrix();
+  motion=true;marmot.start();marmotVideo.prepare();lastFrame=0;updateUI();requestFrame();
+}
+function finishMarmotCue(){
+  if(!marmotCue)return;const previous=marmotCue;marmotCue=null;
+  marmot.reset();marmotVideo.close();cue=previous.previousCue;motion=previous.previousMotion;
+  cameraDirector.restore(previous.previousCamera);orbit=orbitTarget=previous.previousOrbit;
+  zoom=previous.previousZoom;zoomTarget=previous.previousZoomTarget;camera.zoom=zoom;camera.updateProjectionMatrix();
+  lastFrame=0;if(ready){updateUI();requestFrame();}
 }
 function scrub(value){pendingAutoplay=false;playing=false;setTimeline(value);switchPending=null;updateUI();requestFrame();}
 function scheduleAutoplay(){setTimeout(()=>{if(pendingAutoplay&&ready&&!document.hidden){pendingAutoplay=false;playFrom=timeline;playStart=performance.now();playing=true;updateUI();requestFrame();}},700);}
 function cleanView(){app.classList.toggle('performance');document.body.classList.toggle('performance',app.classList.contains('performance'));resize();}
 function stopKeyboardOrbit(){orbitKeys.clear();orbitTarget=orbit;}
 $('intro').addEventListener('click',toggleIntro);$('progress').addEventListener('input',()=>scrub(Number($('progress').value)/1000));
-$('orbit').addEventListener('input',()=>{stopKeyboardOrbit();orbit=orbitTarget=Number($('orbit').value)/100*TAU;requestFrame();});
+$('orbit').addEventListener('input',()=>{holdCamera();stopKeyboardOrbit();orbit=orbitTarget=Number($('orbit').value)/100*TAU;requestFrame();});
 $('motion').addEventListener('click',()=>{motion=!motion;updateUI();requestFrame();});
-$('reset-view').addEventListener('click',()=>{stopKeyboardOrbit();orbit=orbitTarget=0;zoomTarget=1;$('orbit').value='0';requestFrame();});$('clean').addEventListener('click',cleanView);
-for(const id of Object.keys(cues))$(`cue-${id}`).addEventListener('click',()=>chooseCue(id));
+$('reset-view').addEventListener('click',()=>chooseCamera(1));$('clean').addEventListener('click',cleanView);
+for(const id of Object.keys(cues))$(`cue-${id}`)?.addEventListener('click',()=>chooseCue(id));
 $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else{await app.requestFullscreen();if(!app.classList.contains('performance'))cleanView();}}catch{$('error').textContent='無法啟用全螢幕，可改用瀏覽器的 F11 全螢幕。';$('error').hidden=false;}});
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement){app.classList.remove('performance');document.body.classList.remove('performance');}resize();});
 document.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey||e.target.matches('textarea,select,[contenteditable="true"],input:not([type="range"])'))return;
-  const cueKey=/^(Digit|Numpad)[123]$/.test(e.code)?e.code.slice(-1):e.key;
+  const cueKey=/^(Digit|Numpad)[0-5]$/.test(e.code)?e.code.slice(-1):e.key;
   const zoomIn=e.key==='+'||e.key==='='||e.code==='NumpadAdd';
   const zoomOut=e.key==='-'||e.key==='_'||e.code==='NumpadSubtract';
-  if(zoomIn||zoomOut){e.preventDefault();if(ready&&!switchPending){zoomTarget=clamp(zoomTarget*(zoomIn?1.08:1/1.08),MIN_ZOOM,MAX_ZOOM);requestFrame();}}
-  else if(['1','2','3'].includes(cueKey))chooseCue(['inside','outside','battle'][Number(cueKey)-1]);
+  if(e.key==='Escape'&&marmotCue){e.preventDefault();finishMarmotCue();return;}
+  if(zoomIn||zoomOut){e.preventDefault();if(ready&&!switchPending&&!marmotCue){holdCamera();zoomTarget=clamp(zoomTarget*(zoomIn?1.08:1/1.08),MIN_ZOOM,MAX_ZOOM);requestFrame();}}
+  else if(['0','1','2','3','4','5'].includes(cueKey)){e.preventDefault();if(!e.repeat)chooseCamera(Number(cueKey));}
+  else if(e.code==='KeyQ'||e.key.toLowerCase()==='q'){e.preventDefault();if(!e.repeat)startMarmotCue();}
   else if(e.code==='KeyF'||e.key.toLowerCase()==='f'){e.preventDefault();$('fullscreen').click();}
   else if(e.code==='KeyP'||e.key.toLowerCase()==='p'){motion=!motion;updateUI();requestFrame();}
-  else if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(ready&&progress>=.999&&!switchPending&&!dragging&&!e.repeat&&!orbitKeys.has(e.key)){orbitKeys.add(e.key);orbitTarget+=THREE.MathUtils.degToRad(e.key==='ArrowLeft'?-1:1);requestFrame();}}
+  else if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(ready&&progress>=.999&&!switchPending&&!marmotCue&&!dragging&&!e.repeat&&!orbitKeys.has(e.key)){holdCamera();orbitKeys.add(e.key);orbitTarget+=THREE.MathUtils.degToRad(e.key==='ArrowLeft'?-1:1);requestFrame();}}
   else if(e.code==='Space'&&!e.target.matches('button,a,input')){e.preventDefault();toggleIntro();}
   else if(e.key==='Escape'&&app.classList.contains('performance'))cleanView();});
 document.addEventListener('keyup',e=>{if(orbitKeys.delete(e.key))requestFrame();});
-stage.addEventListener('pointerdown',e=>{if(!ready||switchPending||e.button>0||!e.isPrimary)return;stopKeyboardOrbit();pendingAutoplay=false;dragging=true;dragX=e.clientX;dragTimeline=timeline;dragOrbit=orbit;playing=false;stage.setPointerCapture(e.pointerId);updateUI();});
-stage.addEventListener('pointermove',e=>{if(!dragging)return;const delta=(e.clientX-dragX)/stage.getBoundingClientRect().width;
+stage.addEventListener('pointerdown',e=>{if(!ready||switchPending||marmotCue||e.button>0||!e.isPrimary)return;holdCamera();stopKeyboardOrbit();pendingAutoplay=false;dragging=true;dragX=e.clientX;dragTimeline=timeline;dragOrbit=orbit;playing=false;stage.setPointerCapture(e.pointerId);updateUI();});
+stage.addEventListener('pointermove',e=>{if(!dragging||marmotCue)return;const delta=(e.clientX-dragX)/stage.getBoundingClientRect().width;
   if(dragTimeline<1)scrub(dragTimeline+delta*1.5);else{orbit=orbitTarget=dragOrbit+delta*TAU;requestFrame();}});
 for(const event of ['pointerup','pointercancel','lostpointercapture'])stage.addEventListener(event,()=>{dragging=false;});
 stage.addEventListener('dblclick',toggleIntro);
 stage.addEventListener('wheel',e=>{
   // Preserve browser Ctrl/Command-wheel zoom; regular wheels control the scene.
   if(e.ctrlKey||e.metaKey)return;
-  e.preventDefault();if(!ready||switchPending)return;
+  e.preventDefault();if(!ready||switchPending||marmotCue)return;holdCamera();
   const unit=e.deltaMode===1?16:e.deltaMode===2?stage.clientHeight:1;
   const delta=clamp(e.deltaY*unit,-240,240);
   zoomTarget=clamp(zoomTarget*Math.exp(-delta*.0016),MIN_ZOOM,MAX_ZOOM);
@@ -244,7 +273,7 @@ window.addEventListener('focus',resetPerformanceWindow);window.addEventListener(
 window.addEventListener('blur',stopKeyboardOrbit);
 canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();ready=false;$('error').textContent='圖形連線已中斷，重新整理即可恢復舞台。';$('error').hidden=false;});
 async function initialize(){try{
-  const [settings,cycleSettings,seasons]=await Promise.all([loadIntroSettings(),loadDayCycleSettings(),loadSeasonSettings()]);
+  const [settings,cycleSettings,seasons]=await Promise.all([loadIntroSettings(),loadDayCycleSettings(),loadSeasonSettings(),marmot.loadAppearance()]);
   dayCycleSettings=cycleSettings;seasonSettings=seasons;
   credits=await createInkCredits(settings);inkScene.add(credits.mesh);
   story=await createStoryIntro(settings.story,settings);inkScene.add(story.mesh);

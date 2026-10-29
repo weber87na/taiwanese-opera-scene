@@ -11,7 +11,7 @@
     <main id="app">
       <section class="viewer" aria-label="手繪塗鴉立體舞台背景">
         <div id="stage">
-          <canvas id="scene-canvas" aria-label="塗鴉線條在紙上旋轉，組成立體穆柯寨場景。"></canvas>
+          <canvas id="scene-canvas" tabindex="0" aria-label="水墨山寨，0 自動鏡頭，1 到 5 切換視角，Q 土撥鼠與影片，P 暫停。"></canvas>
           <div id="loading" hidden></div>
           <div id="error" role="alert" hidden></div>
         </div>
@@ -28,7 +28,9 @@
         <button id="fullscreen" type="button">全螢幕</button>
         <button id="cue-inside" type="button" aria-pressed="true">穆柯寨內</button>
         <button id="cue-outside" type="button" aria-pressed="false">寨外山道</button>
-        <button id="cue-battle" type="button" aria-pressed="false">陣前交鋒</button>
+        <button id="cue-gate" type="button" aria-pressed="false">寨門近景</button>
+        <button id="cue-left" type="button" aria-pressed="false">左側斜景</button>
+        <button id="cue-river" type="button" aria-pressed="false">河岸高景</button>
       </div>
     </main>
     <script type="module" src="./app.js"></script>

@@ -6,7 +6,16 @@ html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background:
 .viewer { display: block; }
 #stage { position: relative; width: 100%; height: 100%; overflow: hidden; background: #fff; touch-action: none; isolation: isolate; }
 #scene-canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
+#scene-canvas:focus { outline: none; }
 #sketch-overlay, .sketch-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; pointer-events: none; z-index: 2; }
 #loading, .is-ready #loading { display: none !important; }
 #error { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 4; max-width: calc(100% - 40px); padding: 12px 16px; color: #eee9e0; background: #111a24; font: 14px/1.6 "Microsoft JhengHei", sans-serif; }
 .performance #stage, #app:fullscreen #stage { cursor: none; }
+#marmot-video { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; background: transparent; color: #f4eee2; cursor: default; font: 16px/1.6 "Microsoft JhengHei",sans-serif; }
+#marmot-video:focus { outline: none; }
+.marmot-video-stage { width: min(404px,84vw,40.4vh); width: min(404px,84vw,40.4dvh); aspect-ratio: 404 / 720; box-shadow: 0 10px 48px #0008; }
+.marmot-player-slot { display: block; border: 0; width: 100%; height: 100%; }
+.marmot-video-message { position: absolute; bottom: 3%; left: 50%; transform: translateX(-50%); max-width: 92%; text-align: center; padding: 14px 22px; background: #121b24ed; border-radius: 5px; }
+.marmot-video-message p { margin: 0 0 10px; }
+.marmot-video-message button { padding: 9px 18px; margin-right: 15px; background: #e1d3b1; border: 0; border-radius: 3px; cursor: pointer; }
+.marmot-video-message a { color: #e1d3b1; }

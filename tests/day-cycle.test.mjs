@@ -63,6 +63,33 @@ test('celestial bodies rise and sink while disabled cycles stay in daylight',()=
   assert.deepEqual(sampleDayCycle(0,{...config,startPhase:1}),sampleDayCycle(0,config));
 });
 
+test('each successive night has a different lunar shape that stays fixed until sunrise',()=>{
+  const phases=[];
+  for(let cycle=0;cycle<8;cycle++){
+    const early=sampleDayCycle((cycle+.49)*120,config);
+    const late=sampleDayCycle((cycle+.89)*120,config);
+    assert.equal(early.moonPhase,late.moonPhase);
+    assert.equal(early.moonPhaseName,late.moonPhaseName);
+    assert.ok(early.moonIllumination>0&&early.moonIllumination<=1);
+    assert.equal(early.moonPhase,sampleDayCycle((cycle+8+.49)*120,config).moonPhase);
+    phases.push(early.moonPhase);
+  }
+  assert.equal(new Set(phases).size,8);
+  assert.equal(phases.filter(phase=>phase===.5).length,1,'only one of eight nights is full');
+  assert.ok(phases.some(phase=>phase<.2)&&phases.some(phase=>phase>.8),'both crescent directions occur');
+});
+
+test('moon phases follow the configured cycle clock and reset deterministically on replay',()=>{
+  const short=normalizeDayCycleSettings({durationSeconds:60,startPhase:.65});
+  const start=sampleDayCycle(0,short);
+  assert.equal(start.moonPhase,sampleDayCycle(78,config).moonPhase);
+  assert.notEqual(start.moonPhase,sampleDayCycle(60,short).moonPhase);
+  assert.equal(start.moonPhase,sampleDayCycle(480,short).moonPhase);
+  assert.deepEqual(sampleDayCycle(9,short),sampleDayCycle(9,short),'paused clock freezes lunar state');
+  assert.equal(sampleDayCycle(-60,short).moonPhase,sampleDayCycle(420,short).moonPhase);
+  assert.equal(sampleDayCycle(0,short).moonPhase,start.moonPhase,'replay returns to first phase');
+});
+
 test('day sun, sunset disc and night moon fit inside the default outside camera',()=>{
   const camera=new THREE.PerspectiveCamera(47,16/9,.5,800);
   camera.position.set(27,15,72);camera.lookAt(0,9,-16);camera.updateMatrixWorld(true);

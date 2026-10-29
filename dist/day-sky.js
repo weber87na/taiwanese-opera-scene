@@ -12,6 +12,32 @@ export function sampleAuroraVariation(seconds,out={}){
   return out;
 }
 
+// A brief brush of light, followed by a long quiet interval. Sample the scene
+// clock, never wall time: pause, hidden tabs and replay share the sky's clock.
+const meteorDirections=[-.68,.15,1.85,-.22,-2.65,-.86,2.75,-1.55];
+export function sampleMeteor(seconds,night=1,out={}){
+  const time=Number.isFinite(seconds)?seconds:0;
+  const event=Math.floor(time/9.7),age=time-event*9.7;
+  const seed=((Math.sin(event*71.17+13.4)*43758.5453)%1+1)%1;
+  const start=1.1+seed*1.5,duration=1.45+seed*.55;
+  const progress=THREE.MathUtils.clamp((age-start)/duration,0,1);
+  const directionIndex=((event%meteorDirections.length)+meteorDirections.length)%meteorDirections.length;
+  const azimuth=meteorDirections[directionIndex]+progress*(.32+seed*.12);
+  const altitude=.29+seed*.035-progress*(.10+seed*.035);
+  const c=Math.cos(altitude),s=Math.sin(altitude),a=Math.sin(azimuth),b=Math.cos(azimuth);
+  out.x=c*a;out.y=s;out.z=-c*b;
+  // The derivative of the spherical path supplies a stable world-space tail.
+  const da=.32+seed*.12,dh=-.10-seed*.035;
+  const tx=c*b*da-s*a*dh,ty=c*dh,tz=c*a*da+s*b*dh;
+  const length=Math.hypot(tx,ty,tz);
+  out.tx=tx/length;out.ty=ty/length;out.tz=tz/length;
+  out.opacity=THREE.MathUtils.smoothstep(progress,0,.10)*(1-THREE.MathUtils.smoothstep(progress,.63,1))
+    *THREE.MathUtils.smoothstep(Number.isFinite(night)?night:0,.48,.92);
+  out.tailLength=(.12+seed*.045)*THREE.MathUtils.smoothstep(progress,0,.25);
+  out.seed=seed;
+  return out;
+}
+
 // A paper wash and a separate, depth-tested celestial layer. The existing
 // terrain/fortress depth pass masks stars and discs behind the painted hills.
 // Rays live in world space, so orbiting the scene also turns through the sky.
@@ -21,11 +47,13 @@ export function createDaySky(){
     progress:{value:0},opacity:{value:1},strength:{value:0},time:{value:0},
     light:{value:new THREE.Vector4(1,0,0,0)},
     sunDirection:{value:new THREE.Vector3()},moonDirection:{value:new THREE.Vector3()},
+    lunarLight:{value:new THREE.Vector2(0,1)},lunarIllumination:{value:1},
     inverseProjection:{value:new THREE.Matrix4()},cameraRotation:{value:new THREE.Matrix3()},
     seasons:{value:new THREE.Vector4(1,0,0,0)},weather:{value:new THREE.Vector4()},seasonStrength:{value:0},
     rainbowAmount:{value:0},auroraMix:{value:new THREE.Vector3(1,0,0)},
+    meteorHead:{value:new THREE.Vector3()},meteorTrail:{value:new THREE.Vector4()},meteorShape:{value:new THREE.Vector2()},
   };
-  const auroraState={};
+  const auroraState={},meteorState={};
   const vertexShader=`
     varying vec2 vUv;varying vec3 vRay;
     uniform mat4 inverseProjection;uniform mat3 cameraRotation;
@@ -85,7 +113,8 @@ export function createDaySky(){
         colour+=vec3(.06,.085,.13)*moonGlow*light.z*(1.0-cloud*.75);
         // Long horizontal pigment veils suggest lit cloud edges, not lens flare.
         float veil=paper(vec2(vUv.x*7.0+time*.002,y*32.0));
-        float horizon=exp(-pow((ray.y-.08)*6.0,2.0));
+        float horizonDistance=(ray.y-.08)*6.0;
+        float horizon=exp(-horizonDistance*horizonDistance);
         colour+=vec3(.12,.055,.025)*smoothstep(.42,.7,veil)*horizon*light.y;
         vec3 overcast=mix(vec3(.35,.42,.47),vec3(.028,.046,.079),light.z);
         overcast+=vec3(.075,.085,.095)*(1.0-y)*mix(1.0,.2,light.z);
@@ -102,86 +131,125 @@ export function createDaySky(){
       }`,
   });
   const celestialMaterial=new THREE.ShaderMaterial({
-    name:'Ink sun moon stars aurora and after-rain rainbow',transparent:true,depthTest:true,depthWrite:false,
+    name:'Ink sun moon stars aurora meteors and after-rain rainbow',transparent:true,depthTest:true,depthWrite:false,
     uniforms,vertexShader,fragmentShader:`
       varying vec2 vUv;varying vec3 vRay;
       uniform vec4 light,weather;uniform float strength,opacity,time,seasonStrength,rainbowAmount;
-      uniform vec3 sunDirection,moonDirection,auroraMix;
+      uniform vec3 sunDirection,moonDirection,auroraMix,meteorHead;
+      uniform vec2 lunarLight;uniform float lunarIllumination;
+      uniform vec4 meteorTrail;uniform vec2 meteorShape;
       ${noise}
+      vec3 auroraPigment(float phase){
+        float p=fract(phase)*6.0;
+        vec3 jade=vec3(.16,.78,.48),cyan=vec3(.12,.69,.77),blue=vec3(.22,.40,.83);
+        vec3 violet=vec3(.60,.31,.82),rose=vec3(.84,.30,.55),gold=vec3(.87,.72,.39);
+        if(p<1.0)return mix(jade,cyan,smoothstep(.0,1.0,p));
+        if(p<2.0)return mix(cyan,blue,smoothstep(.0,1.0,p-1.0));
+        if(p<3.0)return mix(blue,violet,smoothstep(.0,1.0,p-2.0));
+        if(p<4.0)return mix(violet,rose,smoothstep(.0,1.0,p-3.0));
+        if(p<5.0)return mix(rose,gold,smoothstep(.0,1.0,p-4.0));
+        return mix(gold,jade,smoothstep(.0,1.0,p-5.0));
+      }
+      vec2 auroraFlow(vec2 ring,float drift,float layer){
+        // Sampling the circular world direction, rather than an unwrapped
+        // azimuth, keeps irregular washes continuous across the 360° seam.
+        vec2 p=ring*vec2(3.8,4.3)+vec2(drift*.32,-drift*.21)+layer*vec2(4.7,9.3);
+        vec2 wet=vec2(noise(p*.72+3.1),noise(p*.67-7.4));
+        return p+(wet-.5)*1.75;
+      }
+      vec3 auroraWashColour(vec2 ring,vec2 flow,float height,float layer,float water){
+        float hue=time*.008+ring.x*.29+ring.y*.33+height*.82+noise(flow*.73)*.71+layer*.17;
+        vec3 colour=auroraPigment(hue);
+        // Different pigment pools coexist; no uniformly coloured strip or
+        // mechanically stacked rainbow. Warm dilute ink appears in wet seams.
+        float gold=smoothstep(.62,.83,noise(flow*1.43+height*6.1));
+        colour=mix(colour,vec3(.83,.74,.48),gold*.45);
+        return colour*(.78+.27*water);
+      }
       vec4 curtainAurora(vec3 ray){
-        float azimuth=atan(ray.x,-ray.z),altitude=asin(clamp(ray.y,-1.0,1.0));
+        float altitude=asin(clamp(ray.y,-1.0,1.0));vec2 ring=ray.xz/max(.001,length(ray.xz));
         float drift=time*.028;
         vec3 ink=vec3(0.0);float coverage=0.0;
-        // Two layered curtains, with a luminous lower hem and loose vertical
-        // fibres. Integer azimuth frequencies join seamlessly through 360°.
+        // Uneven wet veils with broad loaded sections, open paper and lost
+        // edges. Vertically stretched noise replaces every periodic thread.
         for(int layer=0;layer<2;layer++){
-          float index=float(layer),phase=index*2.37;
-          float folds=sin(azimuth*3.0+drift+phase)*.037
-            +sin(azimuth*7.0-drift*.73+phase)*.016;
-          float hem=.105+index*.065+folds;
+          float index=float(layer);vec2 flow=auroraFlow(ring,drift,index);
+          float hem=.10+index*.076+(noise(flow*.74)-.5)*.13;
           float height=altitude-hem;
-          float reach=.23+.065*sin(azimuth*2.0+drift*.46+phase);
-          float rise=smoothstep(-.018,.016,height);
-          float veil=rise*exp(-max(0.0,height)*8.3)
-            *(1.0-smoothstep(reach*.62,reach,height));
-          float threads=azimuth*126.0+sin(azimuth*9.0-drift*.8+phase)*5.0;
-          float fibres=.48+.32*pow(.5+.5*sin(threads+phase),3.0)
-            +.20*pow(.5+.5*sin(azimuth*211.0+drift*.4+phase),5.0);
-          float pools=.52+.48*smoothstep(-.75,.85,sin(azimuth*2.0-drift*.32+phase));
-          float rim=exp(-abs(height)*85.0)*.21;
-          float grain=.86+.14*noise(ray.xz*48.0+vec2(drift*.13,ray.y*37.0));
-          float breathing=.86+.14*sin(drift*.61+phase);
-          float alpha=clamp((veil*fibres*.62+rim)*pools*grain*breathing,0.0,.62);
-          alpha*=layer==0?1.0:.67;
-          vec3 green=mix(vec3(.16,.79,.48),vec3(.10,.66,.69),index);
-          vec3 colour=mix(green,vec3(.43,.25,.66),smoothstep(.035,.22,height)*.72);
-          colour+=vec3(.11,.15,.075)*exp(-abs(height)*65.0);
+          float water=paper(flow*1.27+height*vec2(2.4,4.8));
+          float reach=.16+.25*noise(flow*.91+17.3);
+          float lostEdge=(noise(flow*2.73+height*9.0)-.5)*.052;
+          float veil=smoothstep(-.045,.035,height+lostEdge)
+            *(1.0-smoothstep(reach*.42,reach,height+lostEdge));
+          float folds=paper(flow*vec2(2.6,2.1)+height*vec2(1.8,2.7)+vec2(drift*.07,0.0));
+          float loaded=smoothstep(.28,.69,folds);
+          float broken=smoothstep(.24,.66,noise(flow*.92+vec2(5.3,height*3.0)));
+          float wash=veil*(.13+loaded*.56)*(.28+.72*broken);
+          float poolDistance=(height+lostEdge)/(.025+water*.035);
+          float pool=exp(-poolDistance*poolDistance)
+            *smoothstep(.41,.72,water)*.24;
+          float alpha=clamp((wash+pool)*(.77+.23*water)*(1.0-index*.21),0.0,.68);
+          vec3 colour=auroraWashColour(ring,flow,height,index,water);
           ink=colour*alpha+ink*(1.0-alpha);
           coverage=alpha+coverage*(1.0-alpha);
         }
         return vec4(ink,coverage);
       }
       vec4 ribbonAurora(vec3 ray){
-        float azimuth=atan(ray.x,-ray.z),altitude=asin(clamp(ray.y,-1.0,1.0));
+        float altitude=asin(clamp(ray.y,-1.0,1.0));vec2 ring=ray.xz/max(.001,length(ray.xz));
         float drift=time*.035;
         vec3 ink=vec3(0.0);float coverage=0.0;
-        // Broad braided brush ribbons replace the curtain's vertical fringe.
-        // Every azimuth wave has an integer frequency, including fine threads.
-        for(int layer=0;layer<2;layer++){
-          float index=float(layer),phase=index*2.6;
-          float path=.21+index*.075+sin(azimuth*2.0+drift+phase)*.064
-            +sin(azimuth*5.0-drift*.63+phase)*.025;
-          float width=.022+.013*(.5+.5*sin(azimuth*3.0+drift*.47+phase));
-          float d=(altitude-path)/width;
-          float body=exp(-d*d*.72);
-          float edge=exp(-(d+.53)*(d+.53)*9.0)*.23;
-          float threads=.76+.24*sin(d*5.5+sin(azimuth*11.0-drift)*1.2);
-          float pools=.50+.50*smoothstep(-.65,.88,sin(azimuth*3.0-drift*.35+phase));
-          float alpha=clamp((body*threads*.45+edge)*pools*(1.0-index*.25),0.0,.58);
-          vec3 colour=mix(vec3(.17,.70,.80),vec3(.57,.29,.77),smoothstep(-1.1,1.1,d));
-          colour=mix(colour,vec3(.33,.82,.62),index*.38);
+        // Broad, skewed ink sweeps carry unequal pressure and long missing
+        // sections, so even their centres never become parallel clean arcs.
+        for(int layer=0;layer<3;layer++){
+          float index=float(layer);vec2 flow=auroraFlow(ring,drift,index+2.4);
+          float path=.15+index*.079+(noise(flow*.62)-.5)*.21;
+          path+=(noise(flow*1.67+8.4)-.5)*.048;
+          float width=.019+.068*noise(flow*.83-9.7);
+          float water=paper(flow*1.64+altitude*vec2(3.6,11.0));
+          float edgeWarp=(noise(flow*2.37+altitude*15.0)-.5)*.038;
+          float d=(altitude-path+edgeWarp)/width;
+          float loaded=exp(-d*d*.75);
+          float bleed=exp(-d*d*.24)*.15;
+          float gaps=smoothstep(.29,.68,noise(flow*.94+vec2(3.1,altitude*2.0)));
+          float broken=.15+.85*gaps;
+          float poolDistance=(d+.45+water*.65)*1.8;
+          float pooling=exp(-poolDistance*poolDistance)*smoothstep(.37,.74,water)*.23;
+          float alpha=clamp((loaded*(.34+water*.31)+bleed+pooling)*broken*(1.0-index*.16),0.0,.66);
+          vec3 colour=auroraWashColour(ring,flow,altitude-path,index+.8,water);
           ink=colour*alpha+ink*(1.0-alpha);coverage=alpha+coverage*(1.0-alpha);
         }
         return vec4(ink,coverage);
       }
       vec4 coronaAurora(vec3 ray){
-        float azimuth=atan(ray.x,-ray.z),altitude=asin(clamp(ray.y,-1.0,1.0));
+        float altitude=asin(clamp(ray.y,-1.0,1.0));vec2 ring=ray.xz/max(.001,length(ray.xz));
         float drift=time*.024;
-        // Three soft fans surround the valley. The wrapped local angle and
-        // direction-space grain keep their joins continuous behind the camera.
-        float angle=(azimuth+.35-drift*.18)*3.0;
-        float local=atan(sin(angle),cos(angle))/3.0;
-        float height=max(.0,altitude-.035),spread=.085+height*.78;
-        float fan=exp(-local*local/(spread*spread));
-        float veil=smoothstep(.025,.13,altitude)*(1.0-smoothstep(.30,.64,altitude));
-        float rayAngle=atan(local,height+.075);
-        float rays=pow(max(0.0,cos(rayAngle*41.0+sin(height*7.0-drift)*.7)),8.0);
-        float mist=noise(ray.xz*9.0+vec2(drift*.21,altitude*17.0));
-        float breathing=.80+.20*sin(drift*.7+sin(azimuth*3.0));
-        float alpha=fan*veil*(.14+.29*rays+.15*mist)*breathing;
-        vec3 colour=mix(vec3(.68,.26,.49),vec3(.42,.34,.78),smoothstep(.04,.24,altitude));
-        colour=mix(colour,vec3(.24,.64,.73),smoothstep(.22,.53,altitude)*.65);
-        return vec4(colour*alpha,alpha);
+        vec3 ink=vec3(0.0);float coverage=0.0;
+        // Three unequally placed, bent rising ink clouds replace the repeated
+        // fan and its evenly spaced rays. No angular stripe function remains.
+        for(int layer=0;layer<3;layer++){
+          float index=float(layer);vec2 flow=auroraFlow(ring,drift,index+5.8);
+          float centre=layer==0?-.48:layer==1?.86:-2.15;
+          centre+=(noise(vec2(drift*.19,index*3.7))-.5)*.26;
+          vec2 forward=vec2(sin(centre),-cos(centre)),side=vec2(cos(centre),sin(centre));
+          float across=atan(dot(ring,side),dot(ring,forward));
+          float water=paper(flow*1.13+altitude*vec2(3.4,8.1));
+          float lift=altitude-.045-index*.018;
+          float bend=lift*(.38-index*.31)+(noise(flow*.69+altitude*4.3)-.5)*.20;
+          float breadth=.19+lift*(.45+index*.12)+noise(flow*.77+13.0)*.28;
+          float bodyDistance=(across-bend)/max(.12,breadth);
+          float body=exp(-bodyDistance*bodyDistance*1.7);
+          float reach=.36+noise(flow*.56+6.3)*.34;
+          float ragged=(noise(flow*2.39+altitude*14.0)-.5)*.10;
+          float plume=smoothstep(-.025,.085,lift+ragged)*(1.0-smoothstep(reach*.48,reach,lift+ragged));
+          float cloud=paper(flow*1.72+altitude*vec2(1.7,6.2));
+          float loaded=smoothstep(.27,.69,cloud);
+          float openings=smoothstep(.25,.63,noise(flow*.97+altitude*vec2(3.2,-2.3)));
+          float alpha=body*plume*(.13+loaded*.55)*(.27+.73*openings);
+          vec3 colour=auroraWashColour(ring,flow,lift,index+1.6,water);
+          ink=colour*alpha+ink*(1.0-alpha);coverage=alpha+coverage*(1.0-alpha);
+        }
+        return vec4(ink,coverage);
       }
       vec4 aurora(vec3 ray){
         float night=smoothstep(.35,.95,light.z);
@@ -209,12 +277,73 @@ export function createDaySky(){
         // direction. Optical zoom and orbit use the same ray as stars/aurora.
         vec3 centre=normalize(vec3(-.27,-.085,-.96));
         float angle=acos(clamp(dot(ray,centre),-1.0,1.0));
-        float band=(.420-angle)/.038;
-        float softBand=smoothstep(-.035,.085,band)*(1.0-smoothstep(.91,1.035,band));
-        float paperGrain=.87+.13*noise(ray.xz*74.0+ray.y*17.0);
-        float alpha=softBand*amount*.29*paperGrain*smoothstep(.015,.10,ray.y);
-        vec3 colour=mix(rainbowPigment(clamp(band,0.0,1.0)),vec3(.88,.91,.92),.23);
+        // Brush pressure varies along the arch; pigment is swept through a
+        // broad wet stroke instead of six perfectly spaced concentric bands.
+        vec3 right=normalize(cross(centre,vec3(0.0,1.0,0.0)));
+        vec3 up=normalize(cross(right,centre));
+        float sweep=atan(dot(ray,up),dot(ray,right));
+        float pressure=.78+.22*sin(sweep*3.0+.8)+.12*sin(sweep*7.0-1.1);
+        float bend=sin(sweep*5.0)*.0045+sin(sweep*11.0+.6)*.0024;
+        float wet=noise(vec2(sweep*8.0,angle*63.0));
+        float edgeNoise=noise(vec2(sweep*25.0,angle*185.0));
+        float band=(.419+bend-angle)/(.048*pressure);
+        float warped=band+(wet-.5)*.38+(edgeNoise-.5)*.11;
+        float body=smoothstep(-.13,.16,warped)*(1.0-smoothstep(.83,1.15,warped));
+        float bleed=smoothstep(-.42,.08,warped)*(1.0-smoothstep(.94,1.43,warped))*.12;
+        float loading=.67+.33*noise(vec2(sweep*3.4+.8,2.3));
+        // Broken, long fibres follow the stroke. Broad dry pockets are visible
+        // at stage distance without turning the rainbow into a dotted texture.
+        // A few broad fibre gaps survive a 720p stage preview; microscopic
+        // grain alone disappears when this distant arch occupies 20 pixels.
+        float fibres=noise(vec2(sweep*3.0,band*8.5+sin(sweep*4.0)*.6));
+        float bristles=.38+.62*smoothstep(.20,.67,fibres);
+        float dry=smoothstep(.45,.68,noise(vec2(sweep*9.0+.7,band*1.8+1.9)));
+        float scrapeDistance=(warped-(.31+.09*sin(sweep*5.0)))/.068;
+        float scrape=exp(-scrapeDistance*scrapeDistance)
+          *smoothstep(.27,.65,noise(vec2(sweep*4.2,6.3)));
+        float coverage=body*(1.0-dry*.91)*bristles*(1.0-scrape*.76)
+          +bleed*(1.0-dry*.82);
+        float alpha=coverage*loading*amount*.31*smoothstep(.015,.10,ray.y);
+        float dye=clamp(warped+(noise(vec2(sweep*4.5,band*2.2))-.5)*.19,0.0,1.0);
+        vec3 colour=mix(rainbowPigment(dye),vec3(.87,.89,.88),.31);
+        colour*=.90+.10*wet;
         return vec4(colour*alpha,alpha);
+      }
+      vec4 meteor(vec3 ray){
+        if(meteorTrail.w<.001||ray.y<.02)return vec4(0.0);
+        vec3 delta=ray-meteorHead;
+        float along=-dot(delta,meteorTrail.xyz);
+        vec3 normal=normalize(cross(meteorHead,meteorTrail.xyz));
+        float across=dot(delta,normal);
+        float trailLength=max(.0001,meteorShape.x),t=clamp(along/trailLength,0.0,1.0);
+        if(dot(ray,meteorHead)<.975||along<-.012||along>trailLength+.015||abs(across)>.014)return vec4(0.0);
+        float aa=max(.00022,fwidth(across));
+        float seed=meteorShape.y*31.0;
+        float water=noise(vec2(along*94.0+seed,across*870.0+seed));
+        float pressure=.53+.75*noise(vec2(along*57.0+seed,2.7));
+        float width=mix(.0022,.00048,t)*pressure;
+        // A slightly bent, pressure-loaded brush leaves pools, missing ink and
+        // two soft stray fibres. No rigid beam or perfectly circular light tip.
+        float drift=(sin(t*4.5+seed)*.0020+sin(t*10.0-seed)*.00055)*t;
+        float brushDistance=abs(across+drift)+(water-.5)*width*.82;
+        float line=1.0-smoothstep(width*.28,width+aa,brushDistance);
+        float broken=mix(.06,1.0,smoothstep(.25,.62,noise(vec2(along*69.0+seed,8.2))));
+        float tail=line*pow(1.0-t,1.10)*smoothstep(-.002,.005,along)*broken*(.48+.52*water);
+        float wash=(1.0-smoothstep(width*.40,width*2.7+aa,brushDistance))*.19
+          *pow(1.0-t,1.5)*smoothstep(-.002,.009,along)*broken;
+        float bristles=0.0;
+        for(int fibre=0;fibre<2;fibre++){
+          float n=float(fibre),side=n<.5?-1.0:1.0;
+          float offset=side*(.0012+.0023*t)*sin(t*2.4+n*.8);
+          float strand=1.0-smoothstep(.00012,.00055+aa,abs(across+drift+offset));
+          bristles+=strand*smoothstep(.17,.34,t)*(1.0-smoothstep(.55,.94,t))
+            *smoothstep(.32,.72,noise(vec2(t*11.0+seed,n+5.0)))*.17;
+        }
+        vec2 headShape=vec2(along/.0035,across/.0019);
+        float head=1.0-smoothstep(.34,1.25,length(headShape)+(water-.5)*.36);
+        float alpha=min(.93,tail*.80+wash+bristles+head*.82)*meteorTrail.w;
+        vec3 pigment=mix(vec3(.40,.53,.61),vec3(.91,.91,.79),max(head,1.0-t)*.78+water*.12);
+        return vec4(pigment*alpha,alpha);
       }
       void main(){
         vec3 ray=normalize(vRay);vec4 northernLights=aurora(ray);
@@ -234,9 +363,21 @@ export function createDaySky(){
         float moonDist=sqrt(max(0.0,2.0*(1.0-dot(ray,moonDirection))));
         float moonRim=.024*(1.0+(paper(ray.xz*530.0)-.5)*.035);
         float moonDisc=1.0-smoothstep(moonRim-.0007,moonRim+.0007,moonDist);
-        float moonHalo=exp(-moonDist*moonDist/.0035)*.15;
+        // Project the moon onto its own world-space tangent frame. The lit
+        // hemisphere gives a true crescent/half/gibbous silhouette, with a
+        // soft pigment boundary rather than a shaded solid sphere.
+        vec3 moonRight=normalize(cross(moonDirection,vec3(0.0,1.0,0.0)));
+        vec3 moonUp=normalize(cross(moonRight,moonDirection));
+        vec2 moonLocal=vec2(dot(ray,moonRight),dot(ray,moonUp))/.024;
+        float moonDepth=sqrt(max(0.0,1.0-dot(moonLocal,moonLocal)));
+        float terminator=moonLocal.x*lunarLight.x+moonDepth*lunarLight.y;
+        terminator+=(paper(moonLocal*17.0)-.5)*.045;
+        float litMoon=smoothstep(-.035,.035,terminator)*moonDisc;
+        vec2 haloCentre=vec2(lunarLight.x*.32*(1.0-lunarIllumination),0.0);
+        float haloDistance=length(moonLocal-haloCentre)*.024;
+        float moonHalo=exp(-haloDistance*haloDistance/.0021)*(.018+.070*lunarIllumination);
         float moonVisible=light.z*smoothstep(-.03,.06,moonDirection.y);
-        float moonAlpha=max(moonDisc*.97,moonHalo)*moonVisible;
+        float moonAlpha=max(litMoon*.97,moonHalo)*moonVisible;
         vec3 moonColour=vec3(.79,.88,.96)*(.77+.23*paper(ray.xy*250.0+ray.z*91.0));
         colour=mix(colour,moonColour,moonAlpha);alpha=moonAlpha+alpha*(1.0-moonAlpha);
         // Two sparse spherical grids avoid screen-fixed stars when orbiting.
@@ -252,6 +393,8 @@ export function createDaySky(){
         stars*=smoothstep(.025,.12,ray.y)*(1.0-moonDisc)*(1.0-sunDisc);
         vec3 starColour=mix(vec3(.68,.80,1.0),vec3(1.0,.89,.69),hash(cell+19.0));
         colour=mix(colour,starColour,stars);alpha=stars+alpha*(1.0-stars);
+        vec4 shootingStar=meteor(ray);
+        colour=shootingStar.rgb+colour*(1.0-shootingStar.a);alpha=shootingStar.a+alpha*(1.0-shootingStar.a);
         if(alpha<.001)discard;
         // Colours above are composed as premultiplied layers; unpremultiply
         // once for Three's normal alpha blending against the paper wash.
@@ -277,8 +420,16 @@ export function createDaySky(){
       uniforms.strength.value=strength;uniforms.time.value=time;
       sampleAuroraVariation(time,auroraState);
       uniforms.auroraMix.value.set(auroraState.curtain,auroraState.ribbon,auroraState.corona);
+      sampleMeteor(time,state.night,meteorState);
+      uniforms.meteorHead.value.set(meteorState.x,meteorState.y,meteorState.z);
+      uniforms.meteorTrail.value.set(meteorState.tx,meteorState.ty,meteorState.tz,meteorState.opacity);
+      uniforms.meteorShape.value.set(meteorState.tailLength,meteorState.seed);
       direction(uniforms.sunDirection.value,state.sunAltitude,state.sunAzimuth);
       direction(uniforms.moonDirection.value,state.moonAltitude,state.moonAzimuth);
+      const lunarPhase=Number.isFinite(state.moonPhase)?state.moonPhase:.5;
+      const lunarAngle=lunarPhase*Math.PI*2;
+      uniforms.lunarLight.value.set(Math.sin(lunarAngle),-Math.cos(lunarAngle));
+      uniforms.lunarIllumination.value=(1-Math.cos(lunarAngle))*.5;
       uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
       uniforms.cameraRotation.value.setFromMatrix4(camera.matrixWorld);
       celestial.visible=strength>.001;
