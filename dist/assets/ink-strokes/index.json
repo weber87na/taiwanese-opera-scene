@@ -1,0 +1,536 @@
+{
+  "format": "hanzi-writer-medians-v1",
+  "source": {
+    "package": "hanzi-writer-data",
+    "version": "2.0.1",
+    "repository": "https://github.com/chanind/hanzi-writer-data",
+    "tarball": "https://registry.npmjs.org/hanzi-writer-data/-/hanzi-writer-data-2.0.1.tgz",
+    "sha1": "09ce12eb1c47d86aeb33313e622f17ba5cbac1ad",
+    "integrity": "sha512-nbQwM+MaryGoq7pBMIZLCd3lFq03nXuJuwku1+6UbjL58uU+9OULVcMkoNvNuJSoIV7f1bbPRfD4D/LQa5S7qg=="
+  },
+  "modifiedOn": "2026-10-29",
+  "license": "ARPHICPL.TXT",
+  "noticeKey": "_notice",
+  "characterCount": 9574,
+  "strokeCount": 112617,
+  "pointCount": 629258,
+  "bounds": {
+    "minX": 18,
+    "maxX": 1014,
+    "minY": -96,
+    "maxY": 885
+  },
+  "shardShift": 8,
+  "shardPattern": "u{floor(codePoint / 256).toString(16).padStart(2, \"0\")}.json",
+  "coordinateSystem": {
+    "unitsPerEm": 1024,
+    "yAxis": "up",
+    "nominalBottom": -124,
+    "nominalTop": 900
+  },
+  "shards": {
+    "u2e": {
+      "file": "u2e.json",
+      "characters": 9,
+      "bytes": 2231
+    },
+    "u34": {
+      "file": "u34.json",
+      "characters": 8,
+      "bytes": 4117
+    },
+    "u35": {
+      "file": "u35.json",
+      "characters": 2,
+      "bytes": 1479
+    },
+    "u37": {
+      "file": "u37.json",
+      "characters": 1,
+      "bytes": 832
+    },
+    "u38": {
+      "file": "u38.json",
+      "characters": 5,
+      "bytes": 3296
+    },
+    "u39": {
+      "file": "u39.json",
+      "characters": 2,
+      "bytes": 1548
+    },
+    "u3b": {
+      "file": "u3b.json",
+      "characters": 1,
+      "bytes": 1140
+    },
+    "u3c": {
+      "file": "u3c.json",
+      "characters": 2,
+      "bytes": 1325
+    },
+    "u3f": {
+      "file": "u3f.json",
+      "characters": 2,
+      "bytes": 1607
+    },
+    "u43": {
+      "file": "u43.json",
+      "characters": 1,
+      "bytes": 836
+    },
+    "u45": {
+      "file": "u45.json",
+      "characters": 1,
+      "bytes": 1357
+    },
+    "u46": {
+      "file": "u46.json",
+      "characters": 1,
+      "bytes": 1062
+    },
+    "u47": {
+      "file": "u47.json",
+      "characters": 1,
+      "bytes": 1248
+    },
+    "u48": {
+      "file": "u48.json",
+      "characters": 1,
+      "bytes": 1156
+    },
+    "u49": {
+      "file": "u49.json",
+      "characters": 1,
+      "bytes": 1012
+    },
+    "u4c": {
+      "file": "u4c.json",
+      "characters": 1,
+      "bytes": 1245
+    },
+    "u4d": {
+      "file": "u4d.json",
+      "characters": 1,
+      "bytes": 1580
+    },
+    "u4e": {
+      "file": "u4e.json",
+      "characters": 175,
+      "bytes": 63386
+    },
+    "u4f": {
+      "file": "u4f.json",
+      "characters": 138,
+      "bytes": 71617
+    },
+    "u50": {
+      "file": "u50.json",
+      "characters": 99,
+      "bytes": 69613
+    },
+    "u51": {
+      "file": "u51.json",
+      "characters": 142,
+      "bytes": 79317
+    },
+    "u52": {
+      "file": "u52.json",
+      "characters": 132,
+      "bytes": 75648
+    },
+    "u53": {
+      "file": "u53.json",
+      "characters": 160,
+      "bytes": 74237
+    },
+    "u54": {
+      "file": "u54.json",
+      "characters": 166,
+      "bytes": 86282
+    },
+    "u55": {
+      "file": "u55.json",
+      "characters": 141,
+      "bytes": 97125
+    },
+    "u56": {
+      "file": "u56.json",
+      "characters": 118,
+      "bytes": 95439
+    },
+    "u57": {
+      "file": "u57.json",
+      "characters": 125,
+      "bytes": 67409
+    },
+    "u58": {
+      "file": "u58.json",
+      "characters": 86,
+      "bytes": 63431
+    },
+    "u59": {
+      "file": "u59.json",
+      "characters": 128,
+      "bytes": 69041
+    },
+    "u5a": {
+      "file": "u5a.json",
+      "characters": 78,
+      "bytes": 58753
+    },
+    "u5b": {
+      "file": "u5b.json",
+      "characters": 121,
+      "bytes": 78653
+    },
+    "u5c": {
+      "file": "u5c.json",
+      "characters": 129,
+      "bytes": 71874
+    },
+    "u5d": {
+      "file": "u5d.json",
+      "characters": 85,
+      "bytes": 58281
+    },
+    "u5e": {
+      "file": "u5e.json",
+      "characters": 126,
+      "bytes": 78404
+    },
+    "u5f": {
+      "file": "u5f.json",
+      "characters": 140,
+      "bytes": 81165
+    },
+    "u60": {
+      "file": "u60.json",
+      "characters": 135,
+      "bytes": 78353
+    },
+    "u61": {
+      "file": "u61.json",
+      "characters": 95,
+      "bytes": 77732
+    },
+    "u62": {
+      "file": "u62.json",
+      "characters": 153,
+      "bytes": 83652
+    },
+    "u63": {
+      "file": "u63.json",
+      "characters": 121,
+      "bytes": 78916
+    },
+    "u64": {
+      "file": "u64.json",
+      "characters": 119,
+      "bytes": 100064
+    },
+    "u65": {
+      "file": "u65.json",
+      "characters": 119,
+      "bytes": 82070
+    },
+    "u66": {
+      "file": "u66.json",
+      "characters": 109,
+      "bytes": 75240
+    },
+    "u67": {
+      "file": "u67.json",
+      "characters": 123,
+      "bytes": 63902
+    },
+    "u68": {
+      "file": "u68.json",
+      "characters": 111,
+      "bytes": 68869
+    },
+    "u69": {
+      "file": "u69.json",
+      "characters": 90,
+      "bytes": 67274
+    },
+    "u6a": {
+      "file": "u6a.json",
+      "characters": 75,
+      "bytes": 67617
+    },
+    "u6b": {
+      "file": "u6b.json",
+      "characters": 112,
+      "bytes": 80592
+    },
+    "u6c": {
+      "file": "u6c.json",
+      "characters": 152,
+      "bytes": 74885
+    },
+    "u6d": {
+      "file": "u6d.json",
+      "characters": 134,
+      "bytes": 73612
+    },
+    "u6e": {
+      "file": "u6e.json",
+      "characters": 114,
+      "bytes": 77504
+    },
+    "u6f": {
+      "file": "u6f.json",
+      "characters": 95,
+      "bytes": 75589
+    },
+    "u70": {
+      "file": "u70.json",
+      "characters": 92,
+      "bytes": 60279
+    },
+    "u71": {
+      "file": "u71.json",
+      "characters": 82,
+      "bytes": 63627
+    },
+    "u72": {
+      "file": "u72.json",
+      "characters": 115,
+      "bytes": 73043
+    },
+    "u73": {
+      "file": "u73.json",
+      "characters": 99,
+      "bytes": 68174
+    },
+    "u74": {
+      "file": "u74.json",
+      "characters": 80,
+      "bytes": 61323
+    },
+    "u75": {
+      "file": "u75.json",
+      "characters": 140,
+      "bytes": 87675
+    },
+    "u76": {
+      "file": "u76.json",
+      "characters": 131,
+      "bytes": 101933
+    },
+    "u77": {
+      "file": "u77.json",
+      "characters": 112,
+      "bytes": 83606
+    },
+    "u78": {
+      "file": "u78.json",
+      "characters": 98,
+      "bytes": 72262
+    },
+    "u79": {
+      "file": "u79.json",
+      "characters": 94,
+      "bytes": 61486
+    },
+    "u7a": {
+      "file": "u7a.json",
+      "characters": 103,
+      "bytes": 76383
+    },
+    "u7b": {
+      "file": "u7b.json",
+      "characters": 113,
+      "bytes": 80807
+    },
+    "u7c": {
+      "file": "u7c.json",
+      "characters": 88,
+      "bytes": 72874
+    },
+    "u7d": {
+      "file": "u7d.json",
+      "characters": 95,
+      "bytes": 68667
+    },
+    "u7e": {
+      "file": "u7e.json",
+      "characters": 142,
+      "bytes": 104582
+    },
+    "u7f": {
+      "file": "u7f.json",
+      "characters": 139,
+      "bytes": 105127
+    },
+    "u80": {
+      "file": "u80.json",
+      "characters": 143,
+      "bytes": 91283
+    },
+    "u81": {
+      "file": "u81.json",
+      "characters": 126,
+      "bytes": 100897
+    },
+    "u82": {
+      "file": "u82.json",
+      "characters": 144,
+      "bytes": 83279
+    },
+    "u83": {
+      "file": "u83.json",
+      "characters": 131,
+      "bytes": 76453
+    },
+    "u84": {
+      "file": "u84.json",
+      "characters": 101,
+      "bytes": 71990
+    },
+    "u85": {
+      "file": "u85.json",
+      "characters": 93,
+      "bytes": 81243
+    },
+    "u86": {
+      "file": "u86.json",
+      "characters": 108,
+      "bytes": 78270
+    },
+    "u87": {
+      "file": "u87.json",
+      "characters": 105,
+      "bytes": 89629
+    },
+    "u88": {
+      "file": "u88.json",
+      "characters": 110,
+      "bytes": 83406
+    },
+    "u89": {
+      "file": "u89.json",
+      "characters": 87,
+      "bytes": 73766
+    },
+    "u8a": {
+      "file": "u8a.json",
+      "characters": 107,
+      "bytes": 76625
+    },
+    "u8b": {
+      "file": "u8b.json",
+      "characters": 140,
+      "bytes": 94243
+    },
+    "u8c": {
+      "file": "u8c.json",
+      "characters": 143,
+      "bytes": 106694
+    },
+    "u8d": {
+      "file": "u8d.json",
+      "characters": 147,
+      "bytes": 107999
+    },
+    "u8e": {
+      "file": "u8e.json",
+      "characters": 99,
+      "bytes": 88676
+    },
+    "u8f": {
+      "file": "u8f.json",
+      "characters": 143,
+      "bytes": 98017
+    },
+    "u90": {
+      "file": "u90.json",
+      "characters": 148,
+      "bytes": 102008
+    },
+    "u91": {
+      "file": "u91.json",
+      "characters": 111,
+      "bytes": 89206
+    },
+    "u92": {
+      "file": "u92.json",
+      "characters": 67,
+      "bytes": 50083
+    },
+    "u93": {
+      "file": "u93.json",
+      "characters": 48,
+      "bytes": 43830
+    },
+    "u94": {
+      "file": "u94.json",
+      "characters": 140,
+      "bytes": 101901
+    },
+    "u95": {
+      "file": "u95.json",
+      "characters": 176,
+      "bytes": 139167
+    },
+    "u96": {
+      "file": "u96.json",
+      "characters": 154,
+      "bytes": 106899
+    },
+    "u97": {
+      "file": "u97.json",
+      "characters": 89,
+      "bytes": 75828
+    },
+    "u98": {
+      "file": "u98.json",
+      "characters": 128,
+      "bytes": 106967
+    },
+    "u99": {
+      "file": "u99.json",
+      "characters": 108,
+      "bytes": 89955
+    },
+    "u9a": {
+      "file": "u9a.json",
+      "characters": 111,
+      "bytes": 98866
+    },
+    "u9b": {
+      "file": "u9b.json",
+      "characters": 70,
+      "bytes": 68186
+    },
+    "u9c": {
+      "file": "u9c.json",
+      "characters": 116,
+      "bytes": 110215
+    },
+    "u9d": {
+      "file": "u9d.json",
+      "characters": 64,
+      "bytes": 66686
+    },
+    "u9e": {
+      "file": "u9e.json",
+      "characters": 138,
+      "bytes": 120678
+    },
+    "u9f": {
+      "file": "u9f.json",
+      "characters": 70,
+      "bytes": 65731
+    }
+  },
+  "defaults": {
+    "file": "defaults.json",
+    "characters": 55,
+    "bytes": 31070,
+    "missing": [],
+    "basedOn": "dist/intro-config.json"
+  },
+  "totalShardBytes": 6673141
+}

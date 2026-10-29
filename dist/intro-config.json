@@ -1,0 +1,31 @@
+{
+  "enabled": true,
+  "letteringStyle": "calligraphy",
+  "inkColor": "#151413",
+  "fontScale": 1.15,
+  "showAtRotation": 0.28,
+  "writingSeconds": 4.4,
+  "holdSeconds": 1.2,
+  "fadeSeconds": 1,
+  "drawingSeconds": 6,
+  "rotationSeconds": 11,
+  "storyGapSeconds": 0.6,
+  "splashEnabled": true,
+  "splashIntensity": 1,
+  "splashAccentColor": "#a83224",
+  "splashAccentAmount": 0.22,
+  "credits": [
+    { "role": "製作人", "name": "土撥鼠哥" },
+    { "role": "主演", "name": "南方薪傳" }
+  ],
+  "story": {
+    "enabled": true,
+    "removePunctuation": false,
+    "fontScale": 1.45,
+    "title": "陣前招親",
+    "synopsis": "楊家小將楊宗保為破天門陣，到穆柯寨意取降龍木，被寨主之女穆桂英所擒。後來，穆桂英主動提親，兩人因此結為夫婦，並共破天門陣。",
+    "writingSeconds": 6,
+    "holdSeconds": 10,
+    "fadeSeconds": 1.3
+  }
+}
