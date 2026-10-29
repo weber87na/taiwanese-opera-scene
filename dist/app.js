@@ -7,6 +7,8 @@ import {loadIntroSettings} from './intro-settings.js';
 import {createIntroTimeline} from './intro-timeline.js';
 import {createStoryIntro} from './story-intro.js';
 import {createInkTransition} from './ink-transition.js';
+import {loadDayCycleSettings,sampleDayCycle} from './day-cycle.js';
+import {loadSeasonSettings,sampleSeasonCycle} from './season-cycle.js';
 
 const $=id=>document.getElementById(id);
 const stage=$('stage'),canvas=$('scene-canvas'),app=$('app');
@@ -26,8 +28,11 @@ let timeline=0,drawingProgress=0;
 let pendingAutoplay=true;
 let resumeIntroOnShow=false;
 let reveal,frame=0,lastFrame=0,elapsed=0,playStart=0,playFrom=0;
-let orbit=0,dragging=false,dragX=0,dragTimeline=0,dragOrbit=0;
+let orbit=0,orbitTarget=0,dragging=false,dragX=0,dragTimeline=0,dragOrbit=0;
+const orbitKeys=new Set();
 let zoom=1,zoomTarget=1;
+let dayCycleSettings,seasonSettings,dayElapsed=0;
+const dayState={},seasonState={};
 let switchStart=0,switchPending=null,switchChanged=false,mood=0,introGeneration=0;
 let renderScale=1,effectivePixelRatio=1,performanceFrames=0,performanceMs=0,fastWindows=0,smoothedFrameMs=0;
 let statsAt=0,uiAt=0,renderedFrames=0,bufferWidth=0,bufferHeight=0,bufferRatio=0;
@@ -73,7 +78,8 @@ function setCamera(p){
 }
 async function prepareIntro(reset=true){
   const generation=++introGeneration;ready=false;playing=false;lastFrame=0;$('intro').disabled=true;
-  if(reset){orbit=0;$('orbit').value='0';zoom=zoomTarget=1;camera.zoom=1;camera.updateProjectionMatrix();}
+  stopKeyboardOrbit();
+  if(reset){orbit=orbitTarget=0;$('orbit').value='0';zoom=zoomTarget=1;camera.zoom=1;camera.updateProjectionMatrix();dayElapsed=0;}
   setCameraForCue(cue);setOpeningCamera();
   if(reveal){
     // Replaying or changing viewpoint only repositions the paper-space source.
@@ -132,10 +138,20 @@ function render(now){
   if(playing){setTimeline(playFrom+(now-playStart)/introDuration);if(timeline>=1)playing=false;if(now-uiAt>100||!playing){updateUI();uiAt=now;}}
   let curtain=1;
   if(switchPending){const t=(now-switchStart)/1100;curtain=t<.5?1-smooth(0,.5,t):smooth(.5,1,t);
-    if(t>=.5&&!switchChanged){cue=switchPending;setTimeline(1);playing=false;orbit=0;$('orbit').value='0';setCameraForCue(cue);switchChanged=true;curtain=0;updateUI();prepareIntro(false).then(()=>{switchStart=performance.now()-550;requestFrame();}).catch(showError);}
+    if(t>=.5&&!switchChanged){cue=switchPending;setTimeline(1);playing=false;orbit=orbitTarget=0;$('orbit').value='0';setCameraForCue(cue);switchChanged=true;curtain=0;updateUI();prepareIntro(false).then(()=>{switchStart=performance.now()-550;requestFrame();}).catch(showError);}
     if(t>=1){switchPending=null;curtain=1;}
   }
   mood=THREE.MathUtils.lerp(mood,cues[cue].mood,1-Math.exp(-dt*2));
+  // Keyboard orbit follows the same continuous angle as a mouse drag. Ignore
+  // OS key-repeat frequency: held keys advance at a fixed, gentle speed.
+  if(progress>=.999&&!switchPending&&!dragging){
+    const direction=Number(orbitKeys.has('ArrowRight'))-Number(orbitKeys.has('ArrowLeft'));
+    orbitTarget+=THREE.MathUtils.degToRad(36)*direction*dt;
+  }
+  if(Math.abs(orbitTarget-orbit)>.00001){
+    orbit=reduced?orbitTarget:THREE.MathUtils.lerp(orbit,orbitTarget,1-Math.exp(-dt*18));
+    if(Math.abs(orbitTarget-orbit)<.00005)orbit=orbitTarget;
+  }
   // Optical zoom leaves the safe orbit path intact and needs no geometry work.
   if(Math.abs(zoomTarget-zoom)>.0001){
     zoom=reduced?zoomTarget:THREE.MathUtils.lerp(zoom,zoomTarget,1-Math.exp(-dt*14));
@@ -143,6 +159,13 @@ function render(now){
     camera.zoom=zoom;camera.updateProjectionMatrix();
   }
   setCamera(progress);
+  // Begin at the completed scenery. Pausing motion or hiding the page pauses
+  // this clock as well; cue changes preserve it and an intro replay resets it.
+  if(timeline>=1&&motion&&!switchPending)dayElapsed+=frameMs/1000;
+  sampleDayCycle(dayElapsed,dayCycleSettings,dayState);
+  sampleSeasonCycle(dayElapsed,seasonSettings,seasonState);
+  reveal?.setDayCycle(dayState,smooth(.84,1,progress),camera,elapsed);
+  reveal?.setSeason(seasonState,dayState,seasonSettings.enabled?smooth(.84,1,progress):0,dayElapsed);
   // The scaffold is never rendered. The finished scene remains entirely ink.
   renderer.info.reset();
   renderer.setClearColor(paperColor,1);renderer.clear();
@@ -156,16 +179,19 @@ function render(now){
   const reading=creditDuration||storyDuration?smooth(introTiming.creditStartMs-200,introTiming.creditStartMs+450,milliseconds)*(1-smooth(presentationEnd-600,presentationEnd+400,milliseconds)):0;
   // Keep the rotating sketch present, but quieter behind the ink typography.
   const sceneryOpacity=curtain*THREE.MathUtils.lerp(1,.38,reading);
-  if(reveal){reveal.update(progress,elapsed,mood,sceneryOpacity,drawingProgress);renderer.render(inkScene,camera);}
+  if(reveal){reveal.update(progress,elapsed,mood+seasonState.wind*.35,sceneryOpacity,drawingProgress);renderer.render(inkScene,camera);}
   samplePerformance(frameMs);
   renderedFrames++;
-  const keepRendering=ready&&(playing||motion||switchPending||Math.abs(mood-cues[cue].mood)>.002||Math.abs(zoomTarget-zoom)>.0001);
+  const keepRendering=ready&&(playing||motion||switchPending||orbitKeys.size>0||Math.abs(orbitTarget-orbit)>.00001||Math.abs(mood-cues[cue].mood)>.002||Math.abs(zoomTarget-zoom)>.0001);
+  if(now-statsAt>200||!keepRendering)Object.assign(canvas.dataset,{season:seasonState.label,seasonPhase:seasonState.phase.toFixed(4),seasonDuration:String(seasonSettings.durationSeconds),blossom:seasonState.blossom.toFixed(3),rainbow:seasonState.rainbow.toFixed(3),rain:seasonState.rain.toFixed(3),snow:seasonState.snow.toFixed(3),leaves:seasonState.leaves.toFixed(3)});
+  if(now-statsAt>200||!keepRendering)Object.assign(canvas.dataset,{dayCyclePhase:dayState.phase.toFixed(4),dayCycleStage:dayState.label,dayCycleSeconds:dayElapsed.toFixed(2),sceneMotionSeconds:elapsed.toFixed(2),dayCycleDuration:String(dayCycleSettings.durationSeconds),dayCycleActive:String(dayCycleSettings.enabled&&timeline>=1&&motion&&!switchPending)});
   if(now-statsAt>200||!keepRendering){statsAt=now;Object.assign(canvas.dataset,{rendered:'true',focused:String(document.hasFocus()),pageVisible:String(!document.hidden),frameCount:String(renderedFrames),frameMs:smoothedFrameMs.toFixed(2),fps:smoothedFrameMs?(1000/smoothedFrameMs).toFixed(1):'0',drawCalls:String(renderer.info.render.calls),triangles:String(renderer.info.render.triangles),renderScale:renderScale.toFixed(2),orbitDegrees:THREE.MathUtils.radToDeg(orbit).toFixed(1),zoom:zoom.toFixed(3),zoomTarget:zoomTarget.toFixed(3)});}
   if(keepRendering)requestFrame();else lastFrame=0;
 }
 async function toggleIntro(){pendingAutoplay=false;if(!ready||switchPending)return;if(playing){playing=false;updateUI();return;}if(timeline>=1)await prepareIntro();playFrom=timeline;playStart=performance.now();playing=true;updateUI();requestFrame();}
 function chooseCue(id){
   pendingAutoplay=false;if(!ready||id===switchPending)return;
+  stopKeyboardOrbit();
   if(id===cue){
     switchPending=null;switchChanged=false;$('intro').disabled=false;$('progress').disabled=false;
     if(timeline<1){playing=false;setTimeline(1);}updateUI();requestFrame();return;
@@ -175,24 +201,29 @@ function chooseCue(id){
 function scrub(value){pendingAutoplay=false;playing=false;setTimeline(value);switchPending=null;updateUI();requestFrame();}
 function scheduleAutoplay(){setTimeout(()=>{if(pendingAutoplay&&ready&&!document.hidden){pendingAutoplay=false;playFrom=timeline;playStart=performance.now();playing=true;updateUI();requestFrame();}},700);}
 function cleanView(){app.classList.toggle('performance');document.body.classList.toggle('performance',app.classList.contains('performance'));resize();}
+function stopKeyboardOrbit(){orbitKeys.clear();orbitTarget=orbit;}
 $('intro').addEventListener('click',toggleIntro);$('progress').addEventListener('input',()=>scrub(Number($('progress').value)/1000));
-$('orbit').addEventListener('input',()=>{orbit=Number($('orbit').value)/100*TAU;requestFrame();});
+$('orbit').addEventListener('input',()=>{stopKeyboardOrbit();orbit=orbitTarget=Number($('orbit').value)/100*TAU;requestFrame();});
 $('motion').addEventListener('click',()=>{motion=!motion;updateUI();requestFrame();});
-$('reset-view').addEventListener('click',()=>{orbit=0;zoomTarget=1;$('orbit').value='0';requestFrame();});$('clean').addEventListener('click',cleanView);
+$('reset-view').addEventListener('click',()=>{stopKeyboardOrbit();orbit=orbitTarget=0;zoomTarget=1;$('orbit').value='0';requestFrame();});$('clean').addEventListener('click',cleanView);
 for(const id of Object.keys(cues))$(`cue-${id}`).addEventListener('click',()=>chooseCue(id));
 $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else{await app.requestFullscreen();if(!app.classList.contains('performance'))cleanView();}}catch{$('error').textContent='無法啟用全螢幕，可改用瀏覽器的 F11 全螢幕。';$('error').hidden=false;}});
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement){app.classList.remove('performance');document.body.classList.remove('performance');}resize();});
-document.addEventListener('keydown',e=>{if(e.target.matches('textarea,select,[contenteditable="true"],input:not([type="range"])'))return;
+document.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey||e.target.matches('textarea,select,[contenteditable="true"],input:not([type="range"])'))return;
   const cueKey=/^(Digit|Numpad)[123]$/.test(e.code)?e.code.slice(-1):e.key;
-  if(['1','2','3'].includes(cueKey))chooseCue(['inside','outside','battle'][Number(cueKey)-1]);
+  const zoomIn=e.key==='+'||e.key==='='||e.code==='NumpadAdd';
+  const zoomOut=e.key==='-'||e.key==='_'||e.code==='NumpadSubtract';
+  if(zoomIn||zoomOut){e.preventDefault();if(ready&&!switchPending){zoomTarget=clamp(zoomTarget*(zoomIn?1.08:1/1.08),MIN_ZOOM,MAX_ZOOM);requestFrame();}}
+  else if(['1','2','3'].includes(cueKey))chooseCue(['inside','outside','battle'][Number(cueKey)-1]);
   else if(e.code==='KeyF'||e.key.toLowerCase()==='f'){e.preventDefault();$('fullscreen').click();}
   else if(e.code==='KeyP'||e.key.toLowerCase()==='p'){motion=!motion;updateUI();requestFrame();}
-  else if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(ready&&progress>=.999&&!switchPending){orbit+=THREE.MathUtils.degToRad(e.key==='ArrowLeft'?-15:15);requestFrame();}}
+  else if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(ready&&progress>=.999&&!switchPending&&!dragging&&!e.repeat&&!orbitKeys.has(e.key)){orbitKeys.add(e.key);orbitTarget+=THREE.MathUtils.degToRad(e.key==='ArrowLeft'?-1:1);requestFrame();}}
   else if(e.code==='Space'&&!e.target.matches('button,a,input')){e.preventDefault();toggleIntro();}
   else if(e.key==='Escape'&&app.classList.contains('performance'))cleanView();});
-stage.addEventListener('pointerdown',e=>{if(!ready||switchPending||e.button>0||!e.isPrimary)return;pendingAutoplay=false;dragging=true;dragX=e.clientX;dragTimeline=timeline;dragOrbit=orbit;playing=false;stage.setPointerCapture(e.pointerId);updateUI();});
+document.addEventListener('keyup',e=>{if(orbitKeys.delete(e.key))requestFrame();});
+stage.addEventListener('pointerdown',e=>{if(!ready||switchPending||e.button>0||!e.isPrimary)return;stopKeyboardOrbit();pendingAutoplay=false;dragging=true;dragX=e.clientX;dragTimeline=timeline;dragOrbit=orbit;playing=false;stage.setPointerCapture(e.pointerId);updateUI();});
 stage.addEventListener('pointermove',e=>{if(!dragging)return;const delta=(e.clientX-dragX)/stage.getBoundingClientRect().width;
-  if(dragTimeline<1)scrub(dragTimeline+delta*1.5);else{orbit=dragOrbit+delta*TAU;requestFrame();}});
+  if(dragTimeline<1)scrub(dragTimeline+delta*1.5);else{orbit=orbitTarget=dragOrbit+delta*TAU;requestFrame();}});
 for(const event of ['pointerup','pointercancel','lostpointercapture'])stage.addEventListener(event,()=>{dragging=false;});
 stage.addEventListener('dblclick',toggleIntro);
 stage.addEventListener('wheel',e=>{
@@ -205,14 +236,16 @@ stage.addEventListener('wheel',e=>{
   requestFrame();
 },{passive:false});
 document.addEventListener('visibilitychange',()=>{
-  if(document.hidden){resumeIntroOnShow=playing;playing=false;if(frame)cancelAnimationFrame(frame);frame=0;updateUI();}
+  if(document.hidden){stopKeyboardOrbit();resumeIntroOnShow=playing;playing=false;if(frame)cancelAnimationFrame(frame);frame=0;updateUI();}
   else{lastFrame=0;if(resumeIntroOnShow){playFrom=timeline;playStart=performance.now();playing=true;resumeIntroOnShow=false;updateUI();}requestFrame();if(pendingAutoplay)scheduleAutoplay();}
 });
 function resetPerformanceWindow(){performanceFrames=0;performanceMs=0;fastWindows=0;lastFrame=0;}
 window.addEventListener('focus',resetPerformanceWindow);window.addEventListener('blur',resetPerformanceWindow);document.addEventListener('visibilitychange',resetPerformanceWindow);
+window.addEventListener('blur',stopKeyboardOrbit);
 canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();ready=false;$('error').textContent='圖形連線已中斷，重新整理即可恢復舞台。';$('error').hidden=false;});
 async function initialize(){try{
-  const settings=await loadIntroSettings();
+  const [settings,cycleSettings,seasons]=await Promise.all([loadIntroSettings(),loadDayCycleSettings(),loadSeasonSettings()]);
+  dayCycleSettings=cycleSettings;seasonSettings=seasons;
   credits=await createInkCredits(settings);inkScene.add(credits.mesh);
   story=await createStoryIntro(settings.story,settings);inkScene.add(story.mesh);
   releaseInkGlyphCache();

@@ -1,5 +1,6 @@
 // Chinese green-and-blue landscape, entirely editable 3D brush paths.
 // worldWidth is a brush width in scene units; weight remains the pen-width hint.
+import {riverCenterX,riverHalfWidth,riverHeight,isRiverPoint,RIVER_START_Z,RIVER_END_Z} from './river-layout.js';
 const PEAKS=[
  [-64,-99,48,29,35],[-103,-141,51,36,44],[-25,-161,47,31,40],
  [29,-179,52,31,39],[70,-118,53,30,37],[119,-76,43,38,47],
@@ -151,10 +152,12 @@ export function landscapeStrokes(groundHeight){
   for(let i=0;i<5;i++){
    const x=gx+range(-6.5,6.5),z=gz+range(-7,7);
    if(Math.abs(x)<28&&z>-73&&z<65)continue;
+   if(isRiverPoint(x,z,2.5))continue;
    pine(x,z,range(5.1,9.8),range(1.65,2.85),index*.74+range(-.8,.8));
   }
   for(let i=0;i<4;i++){
    const x=gx+range(-9,9),z=gz+range(-9,9),y=groundHeight(x,z)+.48;
+   if(isRiverPoint(x,z,2))continue;
    const size=range(1.5,3),a=range(0,6.28);
    for(let pass=0;pass<2;pass++){
     const points=sample(10,t=>[x+(t*2-1)*size,
@@ -166,27 +169,38 @@ export function landscapeStrokes(groundHeight){
   }
  });
 
- const riverX=z=>54+Math.sin(z*.035)*5+Math.sin(z*.069)*1.8;
- for(let section=0;section<9;section++){
-  const z0=-72+section*19;
-  for(let lane=-1;lane<=1;lane++){
-   wash(sample(14,t=>{
-    const z=z0+t*22,x=riverX(z)+lane*1.45+Math.sin(t*5+section)*.13;
-    return surface(x,z,.6);
-   }),lane?C.water:C.foam,range(1.6,2.5),'river-colour-current',.68);
+ const riverSpan=RIVER_END_Z-RIVER_START_Z,sections=16;
+ for(let section=0;section<sections;section++){
+  const z0=RIVER_START_Z+section*riverSpan/sections;
+  for(let lane=-2;lane<=2;lane++){
+   const points=sample(16,t=>{
+    const z=Math.min(RIVER_END_Z,z0+t*(riverSpan/sections+1.5));
+    const x=riverCenterX(z)+lane*.39*riverHalfWidth(z)+Math.sin(t*5+section)*.10;
+    return [x,riverHeight(z)+.03,z];
+   });
+   // Explicit flat water ribbons prevent the reveal builder from draping the
+   // broad current onto the cut bed or up a steep mountain bank.
+   add(points,lane===0?C.foam:lane===-2?C.azurite:C.water,32,'river-colour-current',lane===0?.48:.67,true);
+   strokes[strokes.length-1].ribbonEdges=points.map((p,index)=>{
+    const hw=riverHalfWidth(p[2]),centre=riverCenterX(p[2]);
+    const half=hw*.265*(.91+.09*Math.sin(index*.73+section+lane));
+    return [-1,1].map(side=>[clamp(p[0]+side*half,centre-hw,centre+hw),p[1],p[2]]);
+   });
   }
  }
- for(let side of [-1,1])for(let section=0;section<4;section++){
-  const z0=-72+section*43;
-  add(sample(24,t=>{
-   const z=z0+t*42,x=riverX(z)+side*(3.2+Math.sin(z*.11)*.3);
-   return surface(x,z,.6);
-  }),C.ochre,1.25,'riverbank-ink',.91);
+ for(let side of [-1,1])for(let section=0;section<8;section++){
+  const z0=RIVER_START_Z+section*riverSpan/8;
+  add(sample(22,t=>{
+   const z=z0+t*riverSpan/8,x=riverCenterX(z)+side*(riverHalfWidth(z)+.4+Math.sin(z*.11)*.15);
+   return [x,Math.max(groundHeight(x,z)+.5,riverHeight(z)+.07),z];
+  }),C.ochre,1.3,'riverbank-ink',.85);
  }
- for(let i=0;i<60;i++){
-  const z=range(-70,98),offset=range(-2.4,2.4),length=range(.8,2.6);
-  add(sample(5,t=>{const zz=z+t*length;return surface(riverX(zz)+offset+Math.sin(t*4)*.16,zz,.72);}),
-   i%4?C.water:C.foam,range(.8,1.45),'water-ink',.89);
+ for(let i=0;i<130;i++){
+  const z=range(RIVER_START_Z+2,RIVER_END_Z-4),lane=range(-.85,.85),length=range(1.0,3.8);
+  add(sample(6,t=>{
+   const zz=z+t*length;
+   return [riverCenterX(zz)+lane*riverHalfWidth(zz)+Math.sin(t*4)*.12,riverHeight(zz)+.06,zz];
+  }),i%4?C.water:C.foam,range(.85,1.6),'water-ink',.82);
  }
 
  // Broken ochre scumbling is naturally scaled with perspective.
@@ -295,7 +309,21 @@ export function landscapeStrokes(groundHeight){
  // Re-check its final coordinates so the hidden terrain cannot cut its base off.
  for(const s of strokes){
   if(s.kind==='horizontal-cloud-wash'||s.kind==='vapour-ink')continue;
+  if(s.kind==='river-colour-current'||s.kind==='water-ink')continue;
   for(const p of s.points)p[1]=Math.max(p[1],groundHeight(p[0],p[2])+.4);
  }
- return strokes.sort((a,b)=>Number(b.wash)-Number(a.wash));
+ // Split only the low portion of a brush path that enters the stream. A long
+ // mountain wash may begin at the river and climb an entire peak; removing the
+ // whole path there would erase the mountain's pigment along with its foot.
+ const clipped=[];
+ for(const stroke of strokes){
+  if(/river|water|cloud|vapour/.test(stroke.kind)){clipped.push(stroke);continue;}
+  const submerged=p=>isRiverPoint(p[0],p[2],(stroke.worldWidth||0)*.48)&&p[1]<riverHeight(p[2])+1.0;
+  if(!stroke.points.some(submerged)){clipped.push(stroke);continue;}
+  let points=[];
+  const finish=()=>{if(points.length>1)clipped.push({...stroke,points});points=[];};
+  for(const point of stroke.points){if(submerged(point))finish();else points.push(point);}
+  finish();
+ }
+ return clipped.sort((a,b)=>Number(b.wash)-Number(a.wash));
 }

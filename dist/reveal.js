@@ -5,7 +5,13 @@ import {skyBirdStrokes} from './sky-birds.js';
 import {groundChainStrokes} from './ground-chains.js';
 import {campfireStrokes} from './campfires.js';
 import {createOpeningPaper} from './opening-drawing.js';
-import {createBrushLayer,createPigmentGround} from './brush-strokes.js';
+import {createBrushLayer} from './brush-strokes.js';
+import {createDaySky} from './day-sky.js';
+import {createWeatherParticles} from './weather-particles.js';
+import {createSpringFlowers} from './spring-flowers.js';
+import {createFortressLights} from './fortress-lights.js';
+import {createSeasonLife} from './season-life.js';
+import {createBlueTears} from './blue-tears.js';
 
 // The only bitmap is the original opening drawing. All final scenery is
 // hand-composed calligraphic brushwork in three-dimensional space.
@@ -30,11 +36,14 @@ export async function createDrawingReveal(world, openingCamera, finalCamera, gro
   const forward=new THREE.Vector3();openingCamera.getWorldDirection(forward);
   const right=new THREE.Vector3().setFromMatrixColumn(openingCamera.matrixWorld,0);
   const up=new THREE.Vector3().setFromMatrixColumn(openingCamera.matrixWorld,1);
-  const distance=50,height=2*distance*Math.tan(THREE.MathUtils.degToRad(openingCamera.fov/2))*.91;
-  const width=height*image.width/image.height;
+  // Fill the fixed stage composition on both axes. The paper and the sampled
+  // stroke origins share this frame so the drawing flows into the 3D reveal.
+  const distance=50,height=2*distance*Math.tan(THREE.MathUtils.degToRad(openingCamera.fov/2));
+  const width=height*openingCamera.aspect;
   const center=openingCamera.position.clone().addScaledVector(forward,distance);
   const sourceCameraInverse=openingCamera.matrixWorld.clone().invert(),sourceTransform=new THREE.Matrix4();
   const openingPaper=createOpeningPaper(texture,width,height),paper=openingPaper.mesh;
+  const sourceBounds=openingPaper.sourceBounds;
   paper.position.copy(center);paper.quaternion.copy(openingCamera.quaternion);paper.renderOrder=2;group.add(paper);
   let randomSeed=84119;
   const random=()=>{randomSeed=(Math.imul(randomSeed,1664525)+1013904223)>>>0;return randomSeed/4294967296;};
@@ -49,7 +58,8 @@ export async function createDrawingReveal(world, openingCamera, finalCamera, gro
     const column=THREE.MathUtils.clamp(Math.floor((midpoint.x*.5+.5)*16),0,15);
     let pool=buckets[category][column];if(!pool.length)pool=categoryPools[category];if(!pool.length)pool=all;
     const point=pool[Math.floor(random()*pool.length)];
-    return{...point,position:center.clone().addScaledVector(right,(point.x-.5)*width).addScaledVector(up,(.5-point.y)*height),right,seed:random()*30};
+    const x=(point.x-sourceBounds.left)/sourceBounds.width,y=(point.y-sourceBounds.top)/sourceBounds.height;
+    return{...point,position:center.clone().addScaledVector(right,(x-.5)*width).addScaledVector(up,(.5-y)*height),right,seed:random()*30};
   }
   const terrain=[...landscapeStrokes(groundHeight),...groundChainStrokes(groundHeight),...campfireStrokes(groundHeight),...skyBirdStrokes()],structure=fortressStrokes(),layers=[];
   // Broad mineral strokes follow the mountain surface on BOTH brush edges.
@@ -86,7 +96,14 @@ export async function createDrawingReveal(world, openingCamera, finalCamera, gro
   }
   // Original drawing stays above the first moving strokes, then disappears.
   paper.renderOrder=10;
-  const pigment=createPigmentGround();group.add(pigment.mesh);
+  const pigment=createDaySky();group.add(pigment.mesh);
+  const weather=createWeatherParticles(groundHeight);group.add(weather.group);
+  const flowers=createSpringFlowers(groundHeight);group.add(flowers.group);
+  const fortressLights=createFortressLights();group.add(fortressLights.group);
+  const life=createSeasonLife(groundHeight);group.add(life.group);
+  const blueTears=createBlueTears();group.add(blueTears.group);
+  let weatherState=null,weatherDay=null,weatherStrength=0,weatherTime=0;
+  let lightingState=null,lightingStrength=0,lightingTime=0;
   return{group,count:[...terrain,...structure].reduce((sum,s)=>sum+s.points.length-1,0),
     setOpeningCamera(nextCamera){
       nextCamera.updateMatrixWorld(true);
@@ -96,10 +113,27 @@ export async function createDrawingReveal(world, openingCamera, finalCamera, gro
       paper.position.copy(nextCamera.position).addScaledVector(forward,distance);paper.quaternion.copy(nextCamera.quaternion);
     },
     setResolution(w,h){for(const layer of layers)layer.setResolution(w,h);},
+    setDayCycle(state,strength,camera,time){
+      for(const layer of layers)layer.setDayCycle(state,strength);
+      pigment.setDayCycle(state,strength,camera,time);
+      lightingState=state;lightingStrength=strength;lightingTime=time;
+    },
+    setSeason(state,dayState,strength,time){
+      for(const layer of layers)layer.setSeason(state,strength);
+      pigment.setSeason(state,strength);
+      weatherState=state;weatherDay=dayState;weatherStrength=strength;weatherTime=time;
+    },
     update(p,time=0,mood=0,opacity=1,drawingProgress=1){
       for(const layer of layers)layer.update(p,time,mood,opacity);pigment.update(p,opacity);
+      if(weatherState){
+        weather.update(weatherState,weatherDay,weatherTime,weatherStrength,opacity);
+        flowers.update(weatherState,weatherDay,weatherTime,weatherStrength,opacity);
+        life.update(weatherState,weatherDay,weatherTime,weatherStrength,opacity);
+        blueTears.update(weatherState,weatherDay,weatherTime,lightingStrength,opacity);
+      }
+      if(lightingState)fortressLights.update(lightingState,lightingTime,lightingStrength,opacity);
       openingPaper.update(drawingProgress,p,opacity);
     },
-    dispose(){for(const layer of layers)layer.dispose();pigment.dispose();openingPaper.dispose();texture.dispose();}
+    dispose(){for(const layer of layers)layer.dispose();life.dispose();blueTears.dispose();fortressLights.dispose();flowers.dispose();weather.dispose();pigment.dispose();openingPaper.dispose();texture.dispose();}
   };
 }

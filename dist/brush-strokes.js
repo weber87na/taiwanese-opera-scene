@@ -1,14 +1,39 @@
 import * as THREE from './vendor/three.module.js';
+import {FORTRESS_LIGHTS,fortressLightLevel} from './fortress-lights.js';
+import {RIVER_GLSL,RIVER_START_Z,RIVER_END_Z} from './river-layout.js';
+
+// Shared lamp positions generate fixed shader instructions once, never per frame.
+const fortressLampShader=FORTRESS_LIGHTS.map(({position,normal,scale},index)=>{
+  const vector=values=>`vec3(${values.map(value=>Number(value).toFixed(3)).join(',')})`;
+  return `{vec3 offset=vWorld-${vector(position)};float falloff=max(0.0,1.0-dot(offset,offset)/${(18*scale*scale).toFixed(3)});
+    float face=smoothstep(-2.0,-.55,dot(offset,${vector(normal)}));
+    lamps+=falloff*falloff*face*(.94+.06*sin(time*4.7+${(index*1.37).toFixed(3)}));}`;
+}).join('\n');
 
 // Camera-facing ribbons keep ink legible at venue resolution. Each ribbon is a
 // continuous hand-drawn path; there are no hardware one-pixel WebGL lines.
 export function createBrushLayer(strokes, sourcePoint, wash=false) {
-  const positions=[],destinations=[],previous=[],next=[],colors=[],inks=[],sides=[],seeds=[],widths=[],worldWidths=[],alphas=[],winds=[],along=[],anchors=[],motionParams=[],indices=[];
+  const positions=[],destinations=[],previous=[],next=[],colors=[],inks=[],sides=[],seeds=[],widths=[],worldWidths=[],alphas=[],winds=[],along=[],surfaces=[],anchors=[],motionParams=[],indices=[];
   const ink=new THREE.Color(),color=new THREE.Color();
+  // Classify authored strokes, never their colour: vermilion architecture,
+  // brass chains, fire and flags must not turn into autumn foliage.
+  function surfaceType(kind=''){
+    if(/^(pine-canopy-pigment|pine-bough-ink|pine-needle-touch|grove-underbrush|underbrush-ink|moss-ink-touch|grass-ink|foreground-scrub-pigment|foreground-scrub-ink|foreground-grass|foreground-moss)$/.test(kind))return 1;
+    if(/^(mountain-mineral-foundation|layered-mineral-pigment|broken-ink-stain|ridge-mineral-light|open-mountain-crest|hemp-fibre-cun|split-dry-fibre|axe-cut-cun|ground-rock-ink|rock-crease|foreground-wet-rock|foreground-rock-cun)$/.test(kind))return 2;
+    if(/^(ochre-earth-scumble|broken-earth-path|path-dry-ink|riverbank-ink)$/.test(kind))return 3;
+    if(/^(roof-mineral|short-tile-ridge|swept-eave|eave-gold|hip-eave|ridge-curl|roof-ridge|ridge-light|coping-top|wall-coping|lantern-cap)$/.test(kind))return 4;
+    if(/^(river-colour-current|water-ink)$/.test(kind))return 5;
+    if(/^campfire-(flame|rising-ember|smoke)/.test(kind))return 6;
+    if(/^(horizontal-cloud-wash|vapour-ink)$/.test(kind))return 7;
+    if(/^(moss-bloom|moss-dots)$/.test(kind))return 8;
+    if(/^flag|^pine-(trunk|branch)$/.test(kind))return 9;
+    return 0;
+  }
   let vertex=0;
   for(const stroke of strokes){
     const points=stroke.points;if(points.length<2)continue;
     const src=sourcePoint(stroke),seed=src.seed;
+    const surface=surfaceType(stroke.kind);
     color.set(stroke.color);ink.setRGB(src.r,src.g,src.b,THREE.SRGBColorSpace);
     for(let i=0;i<points.length;i++){
       const t=i/(points.length-1),p=points[i],prev=points[Math.max(0,i-1)],after=points[Math.min(points.length-1,i+1)];
@@ -19,7 +44,7 @@ export function createBrushLayer(strokes, sourcePoint, wash=false) {
         previous.push(...(stroke.ribbonEdges?stroke.ribbonEdges[Math.max(0,i-1)][edge]:prev));
         next.push(...(stroke.ribbonEdges?stroke.ribbonEdges[Math.min(points.length-1,i+1)][edge]:after));
         colors.push(color.r,color.g,color.b);inks.push(ink.r,ink.g,ink.b);
-        sides.push(side);seeds.push(seed);along.push(t);winds.push(stroke.wind||0);
+        sides.push(side);seeds.push(seed);along.push(t);winds.push(stroke.wind||0);surfaces.push(surface);
         widths.push(wash?stroke.weight||25:(stroke.weight||1)*2.5);
         worldWidths.push(stroke.ribbonEdges?-1:stroke.worldWidth||0);
         anchors.push(...(stroke.motionAnchor||[0,0,0]));motionParams.push(stroke.motionPhase||0,stroke.motionScale||1);
@@ -32,15 +57,19 @@ export function createBrushLayer(strokes, sourcePoint, wash=false) {
   const geometry=new THREE.BufferGeometry();
   for(const [name,array,size] of [['position',positions,3],['destination',destinations,3],['previousPoint',previous,3],['nextPoint',next,3],['finalColor',colors,3],['inkColor',inks,3]])geometry.setAttribute(name,new THREE.Float32BufferAttribute(array,size));
   // Pack scalars into two slots to stay below WebGL's vertex-attribute limit.
-  const brushData=new Float32Array(sides.length*4),inkData=new Float32Array(sides.length*3);
-  for(let i=0;i<sides.length;i++){brushData.set([sides[i],seeds[i],widths[i],worldWidths[i]],i*4);inkData.set([alphas[i],winds[i],along[i]],i*3);}
-  geometry.setAttribute('brushData',new THREE.BufferAttribute(brushData,4));geometry.setAttribute('inkData',new THREE.BufferAttribute(inkData,3));
+  const brushData=new Float32Array(sides.length*4),inkData=new Float32Array(sides.length*4);
+  for(let i=0;i<sides.length;i++){brushData.set([sides[i],seeds[i],widths[i],worldWidths[i]],i*4);inkData.set([alphas[i],winds[i],along[i],surfaces[i]],i*4);}
+  geometry.setAttribute('brushData',new THREE.BufferAttribute(brushData,4));geometry.setAttribute('inkData',new THREE.BufferAttribute(inkData,4));
   geometry.setIndex(indices);
   geometry.setAttribute('motionAnchor',new THREE.Float32BufferAttribute(anchors,3));geometry.setAttribute('motionParams',new THREE.Float32BufferAttribute(motionParams,2));
   const material=new THREE.ShaderMaterial({transparent:true,depthWrite:false,depthTest:true,side:THREE.DoubleSide,
-    uniforms:{progress:{value:0},time:{value:0},mood:{value:0},opacity:{value:1},resolution:{value:new THREE.Vector2(1920,1080)},wash:{value:wash?1:0},sourceTransform:{value:new THREE.Matrix4()}},
+    uniforms:{progress:{value:0},time:{value:0},mood:{value:0},opacity:{value:1},resolution:{value:new THREE.Vector2(1920,1080)},wash:{value:wash?1:0},sourceTransform:{value:new THREE.Matrix4()},
+      cycleStrength:{value:0},cycleLight:{value:new THREE.Vector4(1,0,0,0)},fortressLampPower:{value:0},
+      seasonStrength:{value:0},seasonWeights:{value:new THREE.Vector4(1,0,0,0)},
+      seasonWeather:{value:new THREE.Vector4()},seasonExtra:{value:new THREE.Vector2()},
+      sunDirection:{value:new THREE.Vector3(-.5,.3,-.81).normalize()},moonDirection:{value:new THREE.Vector3(-.3,.3,-.9).normalize()}},
     vertexShader:`attribute vec3 destination,previousPoint,nextPoint,finalColor,inkColor,motionAnchor;attribute vec2 motionParams;
-    attribute vec4 brushData;attribute vec3 inkData;
+    attribute vec4 brushData,inkData;
     #define side brushData.x
     #define seed brushData.y
     #define brushWidth brushData.z
@@ -48,9 +77,10 @@ export function createBrushLayer(strokes, sourcePoint, wash=false) {
     #define brushAlpha inkData.x
     #define windKind inkData.y
     #define along inkData.z
+    #define surfaceType inkData.w
     uniform float progress,time,mood,wash;uniform vec2 resolution;uniform mat4 sourceTransform;
-    varying vec3 vInk,vWorld;varying float vSide,vAlpha,vSeed,vAlong,vKind,vLife;
-    float riverX(float z){return 54.0+sin(z*.035)*5.0+sin(z*.069)*1.8;}
+    varying vec3 vInk,vWorld;varying float vSide,vAlpha,vSeed,vAlong,vKind,vLife,vSurface;
+    ${RIVER_GLSL}
     vec3 orbitY(vec3 p,float a){float c=cos(a),s=sin(a);return vec3(c*p.x-s*p.z,p.y,s*p.x+c*p.z);}
     vec3 drift(vec3 p,float t){
       if(windKind>.5&&windKind<1.5){
@@ -67,9 +97,10 @@ export function createBrushLayer(strokes, sourcePoint, wash=false) {
         p=orbitY(p,time*.018*t);p.y+=sin(time*.55+motionParams.x)*.35*t;
       }
       if(windKind>4.5&&windKind<5.5){
-        float shift=mod(motionAnchor.z+72.0+time*1.7,171.0)-(motionAnchor.z+72.0);
-        float z=p.z+shift,x=riverX(z)-riverX(p.z);
-        p.x+=x*t;p.z=mix(p.z,z,t);p.y+=sin(time*2.3+p.z)*.045*t;
+        float shift=mod(motionAnchor.z-(${RIVER_START_Z.toFixed(1)})+time*1.7,${(RIVER_END_Z-RIVER_START_Z).toFixed(1)})-(motionAnchor.z-(${RIVER_START_Z.toFixed(1)}));
+        float z=p.z+shift,lane=(p.x-riverCenterX(p.z))/riverHalfWidth(p.z);
+        p.x=mix(p.x,riverCenterX(z)+lane*riverHalfWidth(z),t);
+        p.y+=((riverHeight(z)-riverHeight(p.z))+sin(time*2.3+z)*.045)*t;p.z=mix(p.z,z,t);
       }
       if(windKind>5.5&&windKind<6.5){
         float height=max(0.0,p.y-motionAnchor.y),rise=clamp(height/6.0,0.0,1.0),phase=motionParams.x;
@@ -116,10 +147,117 @@ export function createBrushLayer(strokes, sourcePoint, wash=false) {
       gl_Position=clip;
       vInk=mix(inkColor,finalColor,smoothstep(.12,.68,progress));
       vAlpha=brushAlpha*step(.5,clip.w);vSide=side;vAlong=along;vSeed=seed;
-      vWorld=p;vKind=windKind;vLife=fract(time*(windKind>7.5&&windKind<8.5?.13:.4)*motionParams.y+motionParams.x);
+      vWorld=p;vKind=windKind;vSurface=surfaceType;vLife=fract(time*(windKind>7.5&&windKind<8.5?.13:.4)*motionParams.y+motionParams.x);
     }`,
-    fragmentShader:`uniform float progress,opacity,wash,time;varying vec3 vInk,vWorld;varying float vSide,vAlpha,vSeed,vAlong,vKind,vLife;
+    fragmentShader:`uniform float progress,opacity,wash,time,cycleStrength,fortressLampPower;
+    uniform vec4 cycleLight;uniform vec3 sunDirection,moonDirection;
+    uniform float seasonStrength;uniform vec4 seasonWeights,seasonWeather;uniform vec2 seasonExtra;
+    varying vec3 vInk,vWorld;varying float vSide,vAlpha,vSeed,vAlong,vKind,vLife,vSurface;
     float grain(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+    vec3 seasonPigment(vec3 pigment){
+      if(seasonStrength<.0001)return pigment;
+      vec3 colour=pigment;
+      float spring=seasonWeights.x,summer=seasonWeights.y,autumn=seasonWeights.z,winter=seasonWeights.w;
+      float rain=seasonWeather.x,snow=seasonWeather.y,cloudiness=seasonWeather.z,wetness=seasonWeather.w;
+      float snowPatch=.5+.24*sin(vWorld.x*.17+sin(vWorld.z*.09)*2.0)+.20*sin(vWorld.z*.23+vWorld.y*.18);
+      float luminosity=dot(pigment,vec3(.2126,.7152,.0722));
+      bool foliage=(vSurface>.5&&vSurface<1.5)||(vSurface>7.5&&vSurface<8.5);
+      if(foliage){
+        vec3 fresh=pigment*vec3(.84,1.23,.72)+vec3(.026,.053,.007)*wash;
+        vec3 lush=pigment*vec3(.64,.90,.72);
+        float leafVariety=.5+.5*sin(vWorld.x*.20+vWorld.z*.13+vSeed*.65);
+        vec3 autumnWash=mix(vec3(.62,.23,.025),vec3(.32,.046,.014),leafVariety);
+        vec3 autumnInk=pigment*vec3(1.60,.64,.30)+vec3(.025,.005,.001);
+        vec3 gold=mix(autumnInk,autumnWash,wash*.88);
+        vec3 dormant=mix(pigment,vec3(luminosity)*vec3(.72,.88,1.04),.74)*.85;
+        colour=mix(colour,fresh,spring*.84);
+        colour=mix(colour,lush,summer*.88);
+        colour=mix(colour,gold,autumn*.96);
+        colour=mix(colour,dormant,winter*.86);
+      }else if(vSurface>1.5&&vSurface<2.5){
+        // Mineral slopes warm gently; only actual foliage receives vivid gold.
+        vec3 warm=colour*vec3(1.16,.91,.65)+vec3(.039,.012,.002)*wash;
+        colour=mix(colour,warm,autumn*.65);
+        colour=mix(colour,colour*vec3(.88,1.05,.91),spring*.26+summer*.17);
+        colour=mix(colour,vec3(luminosity)*vec3(.72,.90,1.08),winter*.48);
+      }
+      float cover=0.0;
+      if(vSurface>1.5&&vSurface<2.5){
+        // Continuous world-space deposits keep the hidden terrain triangles
+        // from appearing as hard snow facets; higher ridges collect more snow.
+        float ridge=smoothstep(7.0,37.0,vWorld.y);
+        cover=smoothstep(.20,.74,snowPatch+ridge*.26)*(.45+.55*ridge)*mix(.055,.96,wash);
+      }else if(vSurface>2.5&&vSurface<3.5){
+        cover=smoothstep(.26,.77,snowPatch)*mix(.025,.78,wash);
+      }else if(vSurface>3.5&&vSurface<4.5){
+        // Only roof/coping kinds enter this branch, never vertical wall washes.
+        cover=(.62+.38*smoothstep(.20,.72,snowPatch))*mix(.24,.94,wash);
+      }else if(vSurface>.5&&vSurface<1.5){
+        float boughTop=.5+.5*sin(vWorld.y*1.7+vAlong*3.0);
+        cover=smoothstep(.42,.83,snowPatch)*boughTop*mix(.08,.65,wash);
+      }
+      float accumulation=winter*(.68+.32*snow);
+      vec3 snowInk=vec3(.78,.85,.89)*(.93+.07*sin(vWorld.x*.7+vWorld.z*.53));
+      colour=mix(colour,snowInk,cover*accumulation);
+      if(vSurface<5.5||vSurface>7.5){
+        colour*=1.0-wetness*.25;
+        if(vSurface>2.5&&vSurface<3.5||vSurface>4.5&&vSurface<5.5){
+          float reflection=pow(.5+.5*sin(vWorld.z*1.7+vWorld.x*.7-time*(2.0+rain)),10.0);
+          colour+=vec3(.025,.047,.062)*wetness*reflection*mix(.25,1.0,wash);
+        }
+      }
+      if(vSurface>6.5&&vSurface<7.5){
+        colour=mix(colour,vec3(luminosity)*vec3(.73,.81,.92),cloudiness*.7);
+        colour*=1.0-cloudiness*.28;
+      }
+      return mix(pigment,colour,seasonStrength*smoothstep(.84,1.0,progress));
+    }
+    vec3 lightPigment(vec3 pigment){
+      float night=cycleLight.z,twilight=max(cycleLight.y,cycleLight.w*.72);
+      // Wide terrain washes have a real surface normal. Thin ink paths have
+      // zero-area world positions, so use a stable landscape-facing fallback.
+      vec3 areaNormal=cross(dFdx(vWorld),dFdy(vWorld));
+      float areaLength=length(areaNormal);
+      vec3 normal=areaLength>.00001?areaNormal/areaLength:normalize(vec3(sin(vWorld.x*.023)*.4,1.0,cos(vWorld.z*.019)*.3));
+      float sunSide=.36+.64*abs(dot(normal,sunDirection));
+      float moonSide=.32+.68*abs(dot(normal,moonDirection));
+      float heightLight=smoothstep(0.0,32.0,vWorld.y);
+      vec3 day= pigment*(.85+.15*sunSide);
+      vec3 warm=day*vec3(1.24,.78,.53)+vec3(.045,.014,.003)*sunSide*(.3+.7*wash);
+      day=mix(day,warm,twilight*.86);
+      // Keep ink and mineral washes readable on the indigo night paper.
+      vec3 moon= pigment*vec3(.34,.50,.76)*( .58+.42*moonSide )
+        +vec3(.009,.019,.033)*( .5+.5*moonSide )*(.65+.35*wash);
+      moon+=vec3(.008,.016,.026)*heightLight*moonSide;
+      vec3 lit=mix(day,moon,night);
+      if(vKind>1.5&&vKind<2.5){
+        vec3 cloud=vec3(.095,.14,.21)*( .72+.28*moonSide );
+        lit=mix(lit,cloud,night*.70);
+      }
+      if((vKind>2.5&&vKind<3.5)||(vKind>4.5&&vKind<5.5)){
+        float glint=pow(.5+.5*sin(vWorld.z*.8+vWorld.x*.25-time*1.8),8.0);
+        lit+=vec3(.018,.035,.055)*night*glint;
+        lit+=vec3(.09,.035,.008)*twilight*glint;
+      }
+      // These are the two existing fire anchors in campfires.js. Only nearby
+      // low surfaces catch their warm reflected light; geometry stays reused.
+      vec2 fireA=vWorld.xz-vec2(-13.0,10.0),fireB=vWorld.xz-vec2(15.0,13.0);
+      float pulseA=.88+.12*sin(time*7.3)+.055*sin(time*11.1);
+      float pulseB=.88+.12*sin(time*7.3+2.8)+.055*sin(time*11.1-2.8);
+      float fire=(exp(-dot(fireA,fireA)/85.0)*pulseA+exp(-dot(fireB,fireB)/100.0)*pulseB)
+        *exp(-max(0.0,vWorld.y-.5)*.23);
+      lit+=vec3(.23,.066,.012)*fire*(night+.22*twilight)*(.45+.55*wash);
+      // Restrict reflected lamp light to nearby architecture/roof/attached moss.
+      // No work for daylight, mountains, foliage, flags, water or ground chains.
+      if(fortressLampPower>.001&&vWorld.y>3.0&&(vSurface<.5||(vSurface>3.5&&vSurface<4.5)||(vSurface>7.5&&vSurface<8.5))){
+        float lamps=0.0;
+        ${fortressLampShader}
+        lit+=vec3(.31,.105,.020)*min(lamps,1.5)*fortressLampPower*(.38+.62*wash);
+      }
+      // Flame and ember pigments emit their own light throughout the night.
+      if(vKind>5.5&&vKind<7.5)lit=pigment*(1.0+night*.24)+vec3(.055,.018,.002)*night;
+      return mix(pigment,lit,cycleStrength*smoothstep(.83,1.0,progress));
+    }
     void main(){
       float tooth=sin(vAlong*63.0+vSeed+sin(vSide*11.0))*sin(vAlong*157.0-vSeed)*.07;
       float edge=abs(vSide)+tooth+sin(vAlong*29.0-vSeed)*.08;
@@ -130,7 +268,7 @@ export function createBrushLayer(strokes, sourcePoint, wash=false) {
       float fade=wash>.5?smoothstep(.79,.98,progress):smoothstep(.035,.14,progress);
       vec3 pigment=vInk*(.90+.10*abs(vSide));
       if(vKind>2.5&&vKind<3.5){float flow=sin(vWorld.z*.95-time*2.2+sin(vWorld.x*2.4));pigment*=.86+.14*flow;}
-      if(vKind>4.5&&vKind<5.5){coverage*=smoothstep(-72.0,-67.0,vWorld.z)*(1.0-smoothstep(94.0,99.0,vWorld.z));pigment*=1.05+.17*sin(vWorld.z*2.0-time*3.2);}
+      if(vKind>4.5&&vKind<5.5){coverage*=smoothstep(${RIVER_START_Z.toFixed(1)},${(RIVER_START_Z+7).toFixed(1)},vWorld.z)*(1.0-smoothstep(${(RIVER_END_Z-7).toFixed(1)},${RIVER_END_Z.toFixed(1)},vWorld.z));pigment*=1.05+.17*sin(vWorld.z*2.0-time*3.2);}
       if(vKind>5.5&&vKind<6.5){float flicker=.82+.18*sin(time*14.0+vSeed+vWorld.y*2.4);coverage*=flicker;pigment*=1.14+.21*sin(time*8.1+vSeed);}
       if(vKind>6.5&&vKind<7.5){coverage*=smoothstep(0.0,.12,vLife)*(1.0-smoothstep(.65,1.0,vLife));pigment*=1.2;}
       if(vKind>7.5&&vKind<8.5){
@@ -138,6 +276,7 @@ export function createBrushLayer(strokes, sourcePoint, wash=false) {
         coverage*=.8+.2*sin(vAlong*18.0+vSeed+time*.3);
         pigment*=1.0+.16*vLife;
       }
+      pigment=lightPigment(seasonPigment(pigment));
       gl_FragColor=vec4(pigment,coverage*fibers*dry*vAlpha*opacity*fade);
       #include <colorspace_fragment>
     }`});
@@ -146,28 +285,23 @@ export function createBrushLayer(strokes, sourcePoint, wash=false) {
   return{mesh,
     setSourceTransform(matrix){material.uniforms.sourceTransform.value.copy(matrix);},
     setResolution(w,h){material.uniforms.resolution.value.set(w,h);},
+    setSeason(state,strength=1){
+      const uniforms=material.uniforms;
+      uniforms.seasonStrength.value=THREE.MathUtils.clamp(strength,0,1);
+      uniforms.seasonWeights.value.set(state.spring,state.summer,state.autumn,state.winter);
+      uniforms.seasonWeather.value.set(state.rain,state.snow,state.cloudiness,state.wetness);
+      uniforms.seasonExtra.value.set(state.leaves,state.wind);
+    },
+    setDayCycle(state,strength=1){
+      const uniforms=material.uniforms;
+      uniforms.cycleStrength.value=THREE.MathUtils.clamp(strength,0,1);
+      uniforms.cycleLight.value.set(state.daylight,state.sunset,state.night,state.dawn);
+      uniforms.fortressLampPower.value=fortressLightLevel(state);
+      const sunCos=Math.cos(state.sunAltitude),moonCos=Math.cos(state.moonAltitude);
+      uniforms.sunDirection.value.set(Math.sin(state.sunAzimuth)*sunCos,Math.sin(state.sunAltitude),-Math.cos(state.sunAzimuth)*sunCos);
+      uniforms.moonDirection.value.set(Math.sin(state.moonAzimuth)*moonCos,Math.sin(state.moonAltitude),-Math.cos(state.moonAzimuth)*moonCos);
+    },
     update(progress,time,mood,opacity){material.uniforms.progress.value=progress;material.uniforms.time.value=time;material.uniforms.mood.value=mood;material.uniforms.opacity.value=opacity;mesh.visible=wash?progress>.79:progress>.025;},
     dispose(){geometry.dispose();material.dispose();}
   };
-}
-
-// Procedural pigment on paper, not a background image. It gives the entire
-// stage a warm coloured ground beneath the separate three-dimensional strokes.
-export function createPigmentGround(){
-  const geometry=new THREE.PlaneGeometry(2,2);
-  const material=new THREE.ShaderMaterial({depthTest:false,depthWrite:false,uniforms:{progress:{value:0},opacity:{value:1}},
-    vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,.999,1.0);}`,
-    fragmentShader:`varying vec2 vUv;uniform float progress,opacity;
-    float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-    void main(){
-      float y=vUv.y,wave=sin(vUv.x*9.0+y*13.0)*.025+sin(vUv.x*22.0-y*8.0)*.012;
-      vec3 ground=vec3(.67,.54,.32),haze=vec3(.64,.76,.66),sky=vec3(.81,.73,.49);
-      vec3 c=mix(ground,haze,smoothstep(.22,.54,y+wave));
-      c=mix(c,sky,smoothstep(.62,1.0,y+wave));
-      c+=sin(y*50.0+sin(vUv.x*7.0)*1.4)*.012+(hash(floor(gl_FragCoord.xy))-.5)*.025;
-      c=mix(vec3(1.0),c,smoothstep(.12,.82,progress)*opacity);
-      gl_FragColor=vec4(c,1.0);
-    }`});
-  const mesh=new THREE.Mesh(geometry,material);mesh.frustumCulled=false;mesh.renderOrder=-10;
-  return{mesh,update(p,opacity){material.uniforms.progress.value=p;material.uniforms.opacity.value=opacity;},dispose(){geometry.dispose();material.dispose();}};
 }

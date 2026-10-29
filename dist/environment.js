@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.module.js';
+import {riverCenterX as riverX,riverHalfWidth,riverHeight,riverExtent,isRiverPoint,RIVER_START_Z,RIVER_END_Z} from './river-layout.js';
 
 // Entirely procedural geometry: no image textures, billboards or imported models.
 // Village origin is at y=0; the open centre is deliberately level for the set.
@@ -25,8 +26,6 @@ function noise(x,z) {
 function fbm(x,z) {
   return noise(x,z)*0.54 + noise(x*2.07+19,z*2.07-8)*0.28 + noise(x*4.13-7,z*4.13+25)*0.13 + noise(x*8.11+31,z*8.11)*0.05;
 }
-const riverX = z => 54 + Math.sin(z*0.035)*5 + Math.sin(z*0.069)*1.8;
-
 function terrainHeight(x,z) {
   const wx=x+(noise(x*0.024,z*0.024)-0.5)*15;
   const wz=z+(noise(x*0.027+41,z*0.027)-0.5)*12;
@@ -42,9 +41,14 @@ function terrainHeight(x,z) {
   const end = smooth(68,101,z) + (1-smooth(-108,-76,z));
   const landMask=clamp(Math.max(side,end),0,1);
   height=mix(0.025*(Math.sin(x*.21)+Math.cos(z*.17)),height,landMask);
-  const riverExtent=smooth(-84,-67,z)*(1-smooth(96,112,z));
-  const channel=(1-smooth(2.0,8.2,Math.abs(x-riverX(z))))*riverExtent;
-  height=mix(height,-0.78+z*0.0008,channel);
+  // A wider flat bed allows the full water brush and its glints to clear the
+  // coarse depth mesh. The long bank blend cuts a continuous mountain valley.
+  const halfWidth=riverHalfWidth(z);
+  // In the upstream mountains, let the valley climb over a broad foothill.
+  // Keeping the short lowland bank there would shear a tall peak into a wall.
+  const foothill=1-smooth(-68,-38,z),bankReach=9+17*foothill;
+  const channel=(1-smooth(halfWidth+2.3,halfWidth+bankReach,Math.abs(x-riverX(z))))*riverExtent(z);
+  height=mix(height,riverHeight(z)-1.25,channel);
   return height;
 }
 
@@ -95,7 +99,7 @@ export function createEnvironment({depthOnly=false}={}) {
     tint.copy(soil).lerp(foliage,vegetation*.88);
     tint.lerp(rock,smooth(.65,1.65,slope)*.77);
     tint.lerp(scree,smooth(32,55,h)*.42);
-    const riverGravel=(1-smooth(3,10,Math.abs(x-riverX(z))))*smooth(-82,-65,z)*(1-smooth(96,112,z));
+    const riverGravel=(1-smooth(riverHalfWidth(z),riverHalfWidth(z)+9,Math.abs(x-riverX(z))))*riverExtent(z);
     tint.lerp(damp,riverGravel*.77);
     tint.multiplyScalar(.88+fbm(x*.18,z*.18)*.26);
     colors[i*3]=tint.r;colors[i*3+1]=tint.g;colors[i*3+2]=tint.b;
@@ -129,7 +133,7 @@ export function createEnvironment({depthOnly=false}={}) {
   stones.receiveShadow=true; stones.castShadow=true;
   for(let i=0;i<86;i++) {
     let x,z;
-    if(i<35){z=range(-50,94);x=riverX(z)+(random()>.5?1:-1)*range(4.5,10.5);}
+    if(i<35){z=range(RIVER_START_Z+12,RIVER_END_Z-8);x=riverX(z)+(random()>.5?1:-1)*(riverHalfWidth(z)+range(2.5,7.5));}
     else{x=(random()>.5?1:-1)*range(35,77);z=range(-76,90);}
     const size=range(.45,2.1);
     transform.position.set(x,terrainHeight(x,z)+size*.18,z);
@@ -166,7 +170,7 @@ export function createEnvironment({depthOnly=false}={}) {
     let x,z;
     if(i<49){x=(random()>.5?1:-1)*range(37,80);z=range(-80,85);}
     else{x=range(-110,110);z=random()>.5?range(99,172):range(-174,-109);}
-    if(Math.abs(x-riverX(z))<7&&z>-80&&z<105)x+=12;
+    if(isRiverPoint(x,z,3))x=riverX(z)+riverHalfWidth(z)+6;
     const y=terrainHeight(x,z),height=range(4,8.5),width=range(1.25,2.2),turn=range(0,6.28);
     treePositions.push([x,y,z]);
     transform.position.set(x,y+height*.38,z);transform.rotation.set(0,turn,range(-.025,.025));
@@ -202,13 +206,13 @@ export function createEnvironment({depthOnly=false}={}) {
   }
   group.add(pebbles);
 
-  // Narrow distant water follows an actual carved channel on the right-hand side.
+  // Water follows the same widened valley as the visible ink representation.
   const riverPositions=[],riverUV=[],riverIndices=[];
-  const riverSegments=90;
+  const riverSegments=150;
   for(let i=0;i<=riverSegments;i++) {
-    const z=mix(-72,101,i/riverSegments),centre=riverX(z),halfWidth=2.45+Math.sin(z*.11)*.24;
+    const z=mix(RIVER_START_Z,RIVER_END_Z,i/riverSegments),centre=riverX(z),halfWidth=riverHalfWidth(z);
     for(let side=0;side<2;side++) {
-      riverPositions.push(centre+(side===0?-halfWidth:halfWidth),-.32+z*.0008,z);
+      riverPositions.push(centre+(side===0?-halfWidth:halfWidth),riverHeight(z),z);
       riverUV.push(side,i/riverSegments);
     }
     if(i<riverSegments){const n=i*2;riverIndices.push(n,n+2,n+1,n+1,n+2,n+3);}

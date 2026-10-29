@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "durationSeconds": 240,
+  "startPhase": 0,
+  "weatherEnabled": true,
+  "weatherIntensity": 1
+}
