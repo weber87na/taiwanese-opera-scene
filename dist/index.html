@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#18201b" />
+    <meta name="description" content="轉動一張童稚的塗鴉，讓山河在眼前展開。" />
+    <title>一筆，成山河</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app" class="gallery">
+      <header class="gallery-header">
+        <div class="title-block">
+          <p class="eyebrow">FROM SCRIBBLE TO SCENERY</p>
+          <h1>一筆，成山河<span class="title-dot" aria-hidden="true">。</span></h1>
+        </div>
+        <div class="edition">
+          <span class="edition-line" aria-hidden="true"></span>
+          <span>互動風景<span class="edition-divider"> / </span>初版</span>
+        </div>
+      </header>
+
+      <section class="viewer" aria-label="山河旋轉互動作品">
+        <div id="stage" class="stage">
+          <img id="original" class="original" src="./assets/doodle.png" alt="原始塗鴉：白底上的綠色山脈、藍色河流與棕色土地。" />
+          <canvas id="scene-canvas" aria-label="拖曳即可旋轉塗鴉，逐步展現山河風景。也可以使用下方滑桿與播放按鈕操作。"></canvas>
+          <div id="loading" class="loading" role="status"><span class="loading-mark" aria-hidden="true"></span><span>正在展開山河</span></div>
+          <div id="error" class="error" role="alert" hidden>目前無法載入互動場景，請重新整理後再試一次。</div>
+        </div>
+      </section>
+
+      <footer class="controls">
+        <div class="timeline-meta">
+          <span id="phase" class="phase" aria-live="polite">01 / 紙上塗鴉</span>
+          <span class="angle-wrap"><span id="angle">0°</span><span class="angle-caption">旋轉角度</span></span>
+        </div>
+        <label class="sr-only" for="progress">旋轉進度，從原始塗鴉到山河風景</label>
+        <input id="progress" class="progress" type="range" min="0" max="1000" value="0" step="1" aria-valuetext="原始塗鴉" />
+        <div class="control-row">
+          <div class="primary-controls">
+            <button id="play" class="button button-play" type="button"><span class="play-symbol" aria-hidden="true">▶</span><span>播放旋轉</span></button>
+            <button id="reset" class="button button-reset" type="button">回到塗鴉</button>
+          </div>
+          <p class="interaction-hint">拖曳畫面探索，或播放旋轉</p>
+          <button id="fullscreen" class="button button-fullscreen" type="button" aria-label="進入全螢幕"><span class="fullscreen-symbol" aria-hidden="true">⛶</span><span>全螢幕</span></button>
+        </div>
+      </footer>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
