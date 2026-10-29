@@ -1,12 +1,18 @@
 # 陣前招親 — 手繪塗鴉成景
 
-本版本僅在本機使用，依使用者要求不再上傳或同步至 Sites。依最新要求，城內外已移除人物，只保留舞台背景與少量簡筆飛鳥，不加入百姓、士兵或馬匹。
+本版本提供本機預覽與 Vercel 靜態部署，依使用者要求不再上傳或同步至 Sites。依最新要求，城內外已移除人物，只保留舞台背景與少量簡筆飛鳥，不加入百姓、士兵或馬匹。
 
 ## 開啟
 
 在此目錄執行 `node server.mjs`，開啟 http://127.0.0.1:4173/ 。瀏覽器需支援 WebGL 2；不可直接以 file:// 開啟 ES modules。
 
 直接開啟 `http://127.0.0.1:4173/`。不需要網址參數或控制面板；首頁先在純白底上逐筆繪製原塗鴉，旋轉散開成空間線稿後，才疊上製作人與主演題字，再呈現《陣前招親》與故事簡介。潑墨串起文字進退場，最後繼續旋轉成完整山寨。舊網址參數不再控制畫面。
+
+## Vercel 部署
+
+Git 專案根目錄保留為儲存庫根目錄，`vercel.json` 已指定 Framework Preset 為 Other、輸出目錄為 `dist`，並略過安裝與建置指令。所有 HTML、JavaScript、字型、圖集與 MP4 均直接以靜態檔案提供；連接 GitHub 後推送 `main` 即可觸發重新部署。
+
+`server.mjs` 僅供本機預覽，不是 Vercel Function 入口。若舊部署出現 `Invalid export found in module ... server.mjs`／`FUNCTION_INVOCATION_FAILED`，請部署包含 `vercel.json` 的最新提交。設定檔會覆寫專案的 Framework Preset、Build Command、Install Command 與 Output Directory；不需要將請求重寫至 Node 伺服器。
 
 ## 手法
 
